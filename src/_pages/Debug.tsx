@@ -1,6 +1,6 @@
 // Debug.tsx
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import React, { useEffect, useRef, useState } from "react"
+import React, { useEffect, useRef, useState, useCallback, useMemo } from "react"
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
 import { dracula } from "react-syntax-highlighter/dist/esm/styles/prism"
 import ScreenshotQueue from "../components/Queue/ScreenshotQueue"
@@ -149,7 +149,7 @@ const Debug: React.FC<DebugProps> = ({
     const cleanupFunctions = [
       window.electronAPI.onScreenshotTaken(() => refetch()),
       window.electronAPI.onResetView(() => refetch()),
-      window.electronAPI.onDebugSuccess((data) => {
+      window.electronAPI.onDebugSuccess((data: any) => {
         console.log("Debug success event received with data:", data);
         queryClient.setQueryData(["new_solution"], data);
         
@@ -168,7 +168,7 @@ const Debug: React.FC<DebugProps> = ({
           } else if (data.debug_analysis.includes('\n')) {
             // Try to find bullet points or numbered lists
             const lines = data.debug_analysis.split('\n');
-            const bulletPoints = lines.filter(line => 
+            const bulletPoints = lines.filter((line: string) => 
               line.trim().match(/^[\d*\-•]+\s/) || 
               line.trim().match(/^[A-Z][\d\.\)\:]/) ||
               line.includes(':') && line.length < 100
@@ -258,6 +258,40 @@ const Debug: React.FC<DebugProps> = ({
     }
   }
 
+  // Process the debug analysis text by sections and lines
+  const sections = useMemo(() => {
+    if (!debugAnalysis) return [];
+    
+    const sectionsArray: Array<{ title: string; content: string[] }> = [];
+    
+    // Split by possible section headers (### or ##)
+    const mainSections = debugAnalysis.split(/(?=^#{1,3}\s|^\*\*\*|^\s*[A-Z][\w\s]+\s*$)/m);
+    
+    // Filter out empty sections and process each one
+    mainSections.filter(Boolean).forEach((sectionText: string) => {
+      // First line might be a header
+      const lines = sectionText.split('\n');
+      let title = '';
+      let startLineIndex = 0;
+      
+      // Check if first line is a header
+      if (lines[0] && (lines[0].startsWith('#') || lines[0].startsWith('**') || 
+          lines[0].match(/^[A-Z][\w\s]+$/) || lines[0].includes('Issues') || 
+          lines[0].includes('Improvements') || lines[0].includes('Optimizations'))) {
+        title = lines[0].replace(/^#+\s*|\*\*/g, '');
+        startLineIndex = 1;
+      }
+      
+      // Add the section
+      sectionsArray.push({
+        title,
+        content: lines.slice(startLineIndex).filter(Boolean)
+      });
+    });
+    
+    return sectionsArray;
+  }, [debugAnalysis])
+
   return (
     <div ref={contentRef} className="relative">
       <div className="space-y-3 px-4 py-3">
@@ -331,38 +365,7 @@ const Debug: React.FC<DebugProps> = ({
               ) : (
                 <div className="w-full bg-black/30 rounded-md p-4 text-[13px] leading-[1.4] text-gray-100 whitespace-pre-wrap overflow-auto max-h-[600px]">
                   {/* Process the debug analysis text by sections and lines */}
-                  {(() => {
-                    // First identify key sections based on common patterns in the debug output
-                    const sections = [];
-                    let currentSection = { title: '', content: [] };
-                    
-                    // Split by possible section headers (### or ##)
-                    const mainSections = debugAnalysis.split(/(?=^#{1,3}\s|^\*\*\*|^\s*[A-Z][\w\s]+\s*$)/m);
-                    
-                    // Filter out empty sections and process each one
-                    mainSections.filter(Boolean).forEach(sectionText => {
-                      // First line might be a header
-                      const lines = sectionText.split('\n');
-                      let title = '';
-                      let startLineIndex = 0;
-                      
-                      // Check if first line is a header
-                      if (lines[0] && (lines[0].startsWith('#') || lines[0].startsWith('**') || 
-                          lines[0].match(/^[A-Z][\w\s]+$/) || lines[0].includes('Issues') || 
-                          lines[0].includes('Improvements') || lines[0].includes('Optimizations'))) {
-                        title = lines[0].replace(/^#+\s*|\*\*/g, '');
-                        startLineIndex = 1;
-                      }
-                      
-                      // Add the section
-                      sections.push({
-                        title,
-                        content: lines.slice(startLineIndex).filter(Boolean)
-                      });
-                    });
-                    
-                    // Render the processed sections
-                    return sections.map((section, sectionIndex) => (
+                  {sections.map((section: { title: string; content: string[] }, sectionIndex: number) => (
                       <div key={sectionIndex} className="mb-6">
                         {section.title && (
                           <div className="font-bold text-white/90 text-[14px] mb-2 pb-1 border-b border-white/10">
@@ -443,8 +446,7 @@ const Debug: React.FC<DebugProps> = ({
                           })}
                         </div>
                       </div>
-                    ));
-                  })()} 
+                    ))}
                 </div>
               )}
             </div>

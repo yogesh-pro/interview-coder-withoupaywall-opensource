@@ -23,6 +23,19 @@ mkdir "%APPDATA%\interview-coder-v1\temp" 2>nul
 mkdir "%APPDATA%\interview-coder-v1\cache" 2>nul
 mkdir "%APPDATA%\interview-coder-v1\screenshots" 2>nul
 mkdir "%APPDATA%\interview-coder-v1\extra_screenshots" 2>nul
+mkdir "%APPDATA%\interview-coder-v1\session" 2>nul
+mkdir "%APPDATA%\interview-coder-v1\session\Cache" 2>nul
+mkdir "%APPDATA%\interview-coder-v1\session\Cache\Cache_Data" 2>nul
+mkdir "%APPDATA%\interview-coder-v1\session\Shared Dictionary" 2>nul
+mkdir "%APPDATA%\interview-coder-v1\session\Shared Dictionary\cache" 2>nul
+
+echo === Step 1.5: Cleaning invalid config entries... ===
+set CONFIG_FILE=%APPDATA%\interview-coder-v1\config.json
+if exist "%CONFIG_FILE%" (
+    echo Found existing config file, checking for any cleanup needed...
+    REM Note: gemini-2.5-pro is now a valid model, so we don't replace it anymore
+    echo Config validation will be handled by the application
+)
 
 echo === Step 2: Cleaning previous builds... ===
 echo Removing old build files to ensure a fresh start...

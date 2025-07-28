@@ -13,7 +13,7 @@ import { Button } from "../ui/button";
 import { Settings } from "lucide-react";
 import { useToast } from "../../contexts/toast";
 
-type APIProvider = "openai" | "gemini" | "anthropic";
+type APIProvider = "openai" | "gemini" | "openrouter";
 
 type AIModel = {
   id: string;
@@ -22,12 +22,12 @@ type AIModel = {
 };
 
 type ModelCategory = {
-  key: 'extractionModel' | 'solutionModel' | 'debuggingModel';
+  key: 'extractionModel' | 'solutionModel' | 'debuggingModel' | 'mcqModel';
   title: string;
   description: string;
   openaiModels: AIModel[];
   geminiModels: AIModel[];
-  anthropicModels: AIModel[];
+  openrouterModels: AIModel[];
 };
 
 // Define available models for each category
@@ -50,31 +50,31 @@ const modelCategories: ModelCategory[] = [
     ],
     geminiModels: [
       {
-        id: "gemini-1.5-pro",
-        name: "Gemini 1.5 Pro",
-        description: "Best overall performance for problem extraction"
+        id: "gemini-2.5-pro",
+        name: "Gemini 2.5 Pro",
+        description: "Latest and most capable Gemini model"
+      },
+      {
+        id: "gemini-2.5-flash",
+        name: "Gemini 2.5 Flash",
+        description: "Fast and efficient flash model"
+      },
+      {
+        id: "gemini-2.5-flash-lite-preview-06-17",
+        name: "Gemini 2.5 Flash Lite Preview",
+        description: "Lightweight preview version for faster responses"
       },
       {
         id: "gemini-2.0-flash",
         name: "Gemini 2.0 Flash",
-        description: "Faster, more cost-effective option"
+        description: "Previous generation flash model"
       }
     ],
-    anthropicModels: [
+    openrouterModels: [
       {
-        id: "claude-3-7-sonnet-20250219",
-        name: "Claude 3.7 Sonnet",
-        description: "Best overall performance for problem extraction"
-      },
-      {
-        id: "claude-3-5-sonnet-20241022",
-        name: "Claude 3.5 Sonnet",
-        description: "Balanced performance and speed"
-      },
-      {
-        id: "claude-3-opus-20240229",
-        name: "Claude 3 Opus",
-        description: "Top-level intelligence, fluency, and understanding"
+        id: "custom",
+        name: "Custom Model",
+        description: "Use the model specified in OpenRouter settings"
       }
     ]
   },
@@ -96,31 +96,31 @@ const modelCategories: ModelCategory[] = [
     ],
     geminiModels: [
       {
-        id: "gemini-1.5-pro",
-        name: "Gemini 1.5 Pro",
-        description: "Strong overall performance for coding tasks"
+        id: "gemini-2.5-pro",
+        name: "Gemini 2.5 Pro",
+        description: "Latest and most capable for coding tasks"
+      },
+      {
+        id: "gemini-2.5-flash",
+        name: "Gemini 2.5 Flash",
+        description: "Fast and efficient for coding solutions"
+      },
+      {
+        id: "gemini-2.5-flash-lite-preview-06-17",
+        name: "Gemini 2.5 Flash Lite Preview",
+        description: "Lightweight preview for quick coding solutions"
       },
       {
         id: "gemini-2.0-flash",
         name: "Gemini 2.0 Flash",
-        description: "Faster, more cost-effective option"
+        description: "Previous generation for coding tasks"
       }
     ],
-    anthropicModels: [
+    openrouterModels: [
       {
-        id: "claude-3-7-sonnet-20250219",
-        name: "Claude 3.7 Sonnet",
-        description: "Strong overall performance for coding tasks"
-      },
-      {
-        id: "claude-3-5-sonnet-20241022",
-        name: "Claude 3.5 Sonnet",
-        description: "Balanced performance and speed"
-      },
-      {
-        id: "claude-3-opus-20240229",
-        name: "Claude 3 Opus",
-        description: "Top-level intelligence, fluency, and understanding"
+        id: "custom",
+        name: "Custom Model",
+        description: "Use the model specified in OpenRouter settings"
       }
     ]
   },
@@ -142,31 +142,77 @@ const modelCategories: ModelCategory[] = [
     ],
     geminiModels: [
       {
-        id: "gemini-1.5-pro",
-        name: "Gemini 1.5 Pro",
+        id: "gemini-2.5-pro",
+        name: "Gemini 2.5 Pro",
         description: "Best for analyzing code and error messages"
+      },
+      {
+        id: "gemini-2.5-flash",
+        name: "Gemini 2.5 Flash",
+        description: "Fast debugging and analysis"
+      },
+      {
+        id: "gemini-2.5-flash-lite-preview-06-17",
+        name: "Gemini 2.5 Flash Lite Preview",
+        description: "Lightweight preview for quick debugging"
       },
       {
         id: "gemini-2.0-flash",
         name: "Gemini 2.0 Flash",
-        description: "Faster, more cost-effective option"
+        description: "Previous generation for debugging"
       }
     ],
-    anthropicModels: [
+    openrouterModels: [
       {
-        id: "claude-3-7-sonnet-20250219",
-        name: "Claude 3.7 Sonnet",
-        description: "Best for analyzing code and error messages"
+        id: "custom",
+        name: "Custom Model",
+        description: "Use the model specified in OpenRouter settings"
+      }
+    ]
+  },
+  {
+    key: 'mcqModel',
+    title: 'MCQ Analysis',
+    description: 'Model used to analyze multiple choice questions and provide answers',
+    openaiModels: [
+      {
+        id: "gpt-4o",
+        name: "gpt-4o",
+        description: "Best for understanding complex MCQ questions"
       },
       {
-        id: "claude-3-5-sonnet-20241022",
-        name: "Claude 3.5 Sonnet",
-        description: "Balanced performance and speed"
+        id: "gpt-4o-mini",
+        name: "gpt-4o-mini",
+        description: "Faster, cost-effective option for MCQ analysis"
+      }
+    ],
+    geminiModels: [
+      {
+        id: "gemini-2.5-pro",
+        name: "Gemini 2.5 Pro",
+        description: "Best for complex MCQ reasoning and analysis"
       },
       {
-        id: "claude-3-opus-20240229",
-        name: "Claude 3 Opus",
-        description: "Top-level intelligence, fluency, and understanding"
+        id: "gemini-2.5-flash",
+        name: "Gemini 2.5 Flash",
+        description: "Fast and efficient for MCQ questions"
+      },
+      {
+        id: "gemini-2.5-flash-lite-preview-06-17",
+        name: "Gemini 2.5 Flash Lite Preview",
+        description: "Lightweight preview for quick MCQ analysis"
+      },
+      {
+        id: "gemini-2.0-flash",
+        name: "Gemini 2.0 Flash",
+        description: "Previous generation for MCQ analysis"
+      }
+    ],
+    openrouterModels: [
+      {
+        id: "custom",
+        name: "Custom Model",
+        description: "Use the model specified in OpenRouter settings"
       }
     ]
   }
@@ -179,11 +225,16 @@ interface SettingsDialogProps {
 
 export function SettingsDialog({ open: externalOpen, onOpenChange }: SettingsDialogProps) {
   const [open, setOpen] = useState(externalOpen || false);
-  const [apiKey, setApiKey] = useState("");
+  const [openaiApiKey, setOpenaiApiKey] = useState("");
+  const [geminiApiKey, setGeminiApiKey] = useState("");
+  const [openrouterApiKey, setOpenrouterApiKey] = useState("");
+  const [openrouterModel, setOpenrouterModel] = useState("meta-llama/llama-3.1-8b-instruct:free");
   const [apiProvider, setApiProvider] = useState<APIProvider>("openai");
   const [extractionModel, setExtractionModel] = useState("gpt-4o");
   const [solutionModel, setSolutionModel] = useState("gpt-4o");
   const [debuggingModel, setDebuggingModel] = useState("gpt-4o");
+  const [mcqModel, setMcqModel] = useState("gpt-4o");
+  const [solvingMode, setSolvingMode] = useState<"coding" | "mcq">("coding");
   const [isLoading, setIsLoading] = useState(false);
   const { showToast } = useToast();
 
@@ -208,21 +259,50 @@ export function SettingsDialog({ open: externalOpen, onOpenChange }: SettingsDia
     if (open) {
       setIsLoading(true);
       interface Config {
-        apiKey?: string;
+        openaiApiKey?: string;
+        geminiApiKey?: string;
+        openrouterApiKey?: string;
+        openrouterModel?: string;
+        apiKey?: string; // Legacy support
         apiProvider?: APIProvider;
         extractionModel?: string;
         solutionModel?: string;
         debuggingModel?: string;
+        mcqModel?: string;
+        solvingMode?: "coding" | "mcq";
       }
 
       window.electronAPI
         .getConfig()
         .then((config: Config) => {
-          setApiKey(config.apiKey || "");
-          setApiProvider(config.apiProvider || "openai");
-          setExtractionModel(config.extractionModel || "gpt-4o");
-          setSolutionModel(config.solutionModel || "gpt-4o");
-          setDebuggingModel(config.debuggingModel || "gpt-4o");
+          const provider = config.apiProvider || "gemini";
+          
+          setOpenaiApiKey(config.openaiApiKey || config.apiKey || "");
+          setGeminiApiKey(config.geminiApiKey || "");
+          setOpenrouterApiKey(config.openrouterApiKey || "");
+          setOpenrouterModel(config.openrouterModel || "meta-llama/llama-3.1-8b-instruct:free");
+          setApiProvider(provider);
+          
+          // Set model defaults based on provider
+          if (provider === "openai") {
+            setExtractionModel(config.extractionModel || "gpt-4o");
+            setSolutionModel(config.solutionModel || "gpt-4o");
+            setDebuggingModel(config.debuggingModel || "gpt-4o");
+            setMcqModel(config.mcqModel || "gpt-4o");
+          } else if (provider === "openrouter") {
+            setExtractionModel(config.extractionModel || "custom");
+            setSolutionModel(config.solutionModel || "custom");
+            setDebuggingModel(config.debuggingModel || "custom");
+            setMcqModel(config.mcqModel || "custom");
+          } else {
+            // Gemini provider
+            setExtractionModel(config.extractionModel || "gemini-2.5-flash");
+            setSolutionModel(config.solutionModel || "gemini-2.5-flash");
+            setDebuggingModel(config.debuggingModel || "gemini-2.5-flash");
+            setMcqModel(config.mcqModel || "gemini-2.5-flash");
+          }
+          
+          setSolvingMode(config.solvingMode || "coding");
         })
         .catch((error: unknown) => {
           console.error("Failed to load config:", error);
@@ -243,14 +323,17 @@ export function SettingsDialog({ open: externalOpen, onOpenChange }: SettingsDia
       setExtractionModel("gpt-4o");
       setSolutionModel("gpt-4o");
       setDebuggingModel("gpt-4o");
+      setMcqModel("gpt-4o");
     } else if (provider === "gemini") {
-      setExtractionModel("gemini-1.5-pro");
-      setSolutionModel("gemini-1.5-pro");
-      setDebuggingModel("gemini-1.5-pro");
-    } else if (provider === "anthropic") {
-      setExtractionModel("claude-3-7-sonnet-20250219");
-      setSolutionModel("claude-3-7-sonnet-20250219");
-      setDebuggingModel("claude-3-7-sonnet-20250219");
+      setExtractionModel("gemini-2.5-flash");
+      setSolutionModel("gemini-2.5-flash");
+      setDebuggingModel("gemini-2.5-flash");
+      setMcqModel("gemini-2.5-flash");
+    } else if (provider === "openrouter") {
+      setExtractionModel("custom");
+      setSolutionModel("custom");
+      setDebuggingModel("custom");
+      setMcqModel("custom");
     }
   };
 
@@ -258,11 +341,16 @@ export function SettingsDialog({ open: externalOpen, onOpenChange }: SettingsDia
     setIsLoading(true);
     try {
       const result = await window.electronAPI.updateConfig({
-        apiKey,
+        openaiApiKey,
+        geminiApiKey,
+        openrouterApiKey,
+        openrouterModel,
         apiProvider,
         extractionModel,
         solutionModel,
         debuggingModel,
+        mcqModel,
+        solvingMode,
       });
       
       if (result) {
@@ -362,63 +450,102 @@ export function SettingsDialog({ open: externalOpen, onOpenChange }: SettingsDia
                   />
                   <div className="flex flex-col">
                     <p className="font-medium text-white text-sm">Gemini</p>
-                    <p className="text-xs text-white/60">Gemini 1.5 models</p>
+                    <p className="text-xs text-white/60">Gemini 2.5 & 1.5 models</p>
                   </div>
                 </div>
               </div>
               <div
                 className={`flex-1 p-2 rounded-lg cursor-pointer transition-colors ${
-                  apiProvider === "anthropic"
+                  apiProvider === "openrouter"
                     ? "bg-white/10 border border-white/20"
                     : "bg-black/30 border border-white/5 hover:bg-white/5"
                 }`}
-                onClick={() => handleProviderChange("anthropic")}
+                onClick={() => handleProviderChange("openrouter")}
               >
                 <div className="flex items-center gap-2">
                   <div
                     className={`w-3 h-3 rounded-full ${
-                      apiProvider === "anthropic" ? "bg-white" : "bg-white/20"
+                      apiProvider === "openrouter" ? "bg-white" : "bg-white/20"
                     }`}
                   />
                   <div className="flex flex-col">
-                    <p className="font-medium text-white text-sm">Claude</p>
-                    <p className="text-xs text-white/60">Claude 3 models</p>
+                    <p className="font-medium text-white text-sm">OpenRouter</p>
+                    <p className="text-xs text-white/60">Access multiple models</p>
                   </div>
                 </div>
               </div>
             </div>
           </div>
           
+          {/* Solving Mode Selection */}
           <div className="space-y-2">
-            <label className="text-sm font-medium text-white" htmlFor="apiKey">
-            {apiProvider === "openai" ? "OpenAI API Key" : 
-             apiProvider === "gemini" ? "Gemini API Key" : 
-             "Anthropic API Key"}
-            </label>
-            <Input
-              id="apiKey"
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder={
-                apiProvider === "openai" ? "sk-..." : 
-                apiProvider === "gemini" ? "Enter your Gemini API key" :
-                "sk-ant-..."
-              }
-              className="bg-black/50 border-white/10 text-white"
-            />
-            {apiKey && (
-              <p className="text-xs text-white/50">
-                Current: {maskApiKey(apiKey)}
-              </p>
-            )}
-            <p className="text-xs text-white/50">
-              Your API key is stored locally and never sent to any server except {apiProvider === "openai" ? "OpenAI" : "Google"}
-            </p>
-            <div className="mt-2 p-2 rounded-md bg-white/5 border border-white/10">
-              <p className="text-xs text-white/80 mb-1">Don't have an API key?</p>
-              {apiProvider === "openai" ? (
-                <>
+            <label className="text-sm font-medium text-white">Solving Mode</label>
+            <div className="flex gap-2">
+              <div
+                className={`flex-1 p-2 rounded-lg cursor-pointer transition-colors ${
+                  solvingMode === "coding"
+                    ? "bg-white/10 border border-white/20"
+                    : "bg-black/30 border border-white/5 hover:bg-white/5"
+                }`}
+                onClick={() => setSolvingMode("coding")}
+              >
+                <div className="flex items-center gap-2">
+                  <div
+                    className={`w-3 h-3 rounded-full ${
+                      solvingMode === "coding" ? "bg-white" : "bg-white/20"
+                    }`}
+                  />
+                  <div className="flex flex-col">
+                    <p className="font-medium text-white text-sm">Coding Questions</p>
+                    <p className="text-xs text-white/60">2-step process: extract + solve</p>
+                  </div>
+                </div>
+              </div>
+              <div
+                className={`flex-1 p-2 rounded-lg cursor-pointer transition-colors ${
+                  solvingMode === "mcq"
+                    ? "bg-white/10 border border-white/20"
+                    : "bg-black/30 border border-white/5 hover:bg-white/5"
+                }`}
+                onClick={() => setSolvingMode("mcq")}
+              >
+                <div className="flex items-center gap-2">
+                  <div
+                    className={`w-3 h-3 rounded-full ${
+                      solvingMode === "mcq" ? "bg-white" : "bg-white/20"
+                    }`}
+                  />
+                  <div className="flex flex-col">
+                    <p className="font-medium text-white text-sm">MCQ Questions</p>
+                    <p className="text-xs text-white/60">Direct: image → answer + reason</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          {/* API Key Configuration */}
+          <div className="space-y-4">
+            {apiProvider === "openai" && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-white" htmlFor="openaiApiKey">
+                  OpenAI API Key
+                </label>
+                <Input
+                  id="openaiApiKey"
+                  type="password"
+                  value={openaiApiKey}
+                  onChange={(e) => setOpenaiApiKey(e.target.value)}
+                  placeholder="sk-..."
+                  className="bg-black/50 border-white/10 text-white"
+                />
+                {openaiApiKey && (
+                  <p className="text-xs text-white/50">
+                    Current: {maskApiKey(openaiApiKey)}
+                  </p>
+                )}
+                <div className="mt-2 p-2 rounded-md bg-white/5 border border-white/10">
+                  <p className="text-xs text-white/80 mb-1">Don't have an API key?</p>
                   <p className="text-xs text-white/60 mb-1">1. Create an account at <button 
                     onClick={() => openExternalLink('https://platform.openai.com/signup')} 
                     className="text-blue-400 hover:underline cursor-pointer">OpenAI</button>
@@ -428,9 +555,30 @@ export function SettingsDialog({ open: externalOpen, onOpenChange }: SettingsDia
                     className="text-blue-400 hover:underline cursor-pointer">API Keys</button> section
                   </p>
                   <p className="text-xs text-white/60">3. Create a new secret key and paste it here</p>
-                </>
-              ) : apiProvider === "gemini" ?  (
-                <>
+                </div>
+              </div>
+            )}
+
+            {apiProvider === "gemini" && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-white" htmlFor="geminiApiKey">
+                  Gemini API Key
+                </label>
+                <Input
+                  id="geminiApiKey"
+                  type="password"
+                  value={geminiApiKey}
+                  onChange={(e) => setGeminiApiKey(e.target.value)}
+                  placeholder="Enter your Gemini API key"
+                  className="bg-black/50 border-white/10 text-white"
+                />
+                {geminiApiKey && (
+                  <p className="text-xs text-white/50">
+                    Current: {maskApiKey(geminiApiKey)}
+                  </p>
+                )}
+                <div className="mt-2 p-2 rounded-md bg-white/5 border border-white/10">
+                  <p className="text-xs text-white/80 mb-1">Don't have an API key?</p>
                   <p className="text-xs text-white/60 mb-1">1. Create an account at <button 
                     onClick={() => openExternalLink('https://aistudio.google.com/')} 
                     className="text-blue-400 hover:underline cursor-pointer">Google AI Studio</button>
@@ -440,21 +588,58 @@ export function SettingsDialog({ open: externalOpen, onOpenChange }: SettingsDia
                     className="text-blue-400 hover:underline cursor-pointer">API Keys</button> section
                   </p>
                   <p className="text-xs text-white/60">3. Create a new API key and paste it here</p>
-                </>
-              ) : (
-                <>
+                </div>
+              </div>
+            )}
+
+            {apiProvider === "openrouter" && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-white" htmlFor="openrouterApiKey">
+                  OpenRouter API Key
+                </label>
+                <Input
+                  id="openrouterApiKey"
+                  type="password"
+                  value={openrouterApiKey}
+                  onChange={(e) => setOpenrouterApiKey(e.target.value)}
+                  placeholder="sk-or-..."
+                  className="bg-black/50 border-white/10 text-white"
+                />
+                {openrouterApiKey && (
+                  <p className="text-xs text-white/50">
+                    Current: {maskApiKey(openrouterApiKey)}
+                  </p>
+                )}
+                
+                <label className="text-sm font-medium text-white" htmlFor="openrouterModel">
+                  OpenRouter Model
+                </label>
+                <Input
+                  id="openrouterModel"
+                  type="text"
+                  value={openrouterModel}
+                  onChange={(e) => setOpenrouterModel(e.target.value)}
+                  placeholder="meta-llama/llama-3.1-8b-instruct:free"
+                  className="bg-black/50 border-white/10 text-white"
+                />
+                <p className="text-xs text-white/50">
+                  Specify the model to use (e.g., gpt-4, meta-llama/llama-3.1-8b-instruct:free, anthropic/claude-3-sonnet)
+                </p>
+                
+                <div className="mt-2 p-2 rounded-md bg-white/5 border border-white/10">
+                  <p className="text-xs text-white/80 mb-1">Don't have an API key?</p>
                   <p className="text-xs text-white/60 mb-1">1. Create an account at <button 
-                    onClick={() => openExternalLink('https://console.anthropic.com/signup')} 
-                    className="text-blue-400 hover:underline cursor-pointer">Anthropic</button>
+                    onClick={() => openExternalLink('https://openrouter.ai')} 
+                    className="text-blue-400 hover:underline cursor-pointer">OpenRouter</button>
                   </p>
                   <p className="text-xs text-white/60 mb-1">2. Go to the <button 
-                    onClick={() => openExternalLink('https://console.anthropic.com/settings/keys')} 
+                    onClick={() => openExternalLink('https://openrouter.ai/keys')} 
                     className="text-blue-400 hover:underline cursor-pointer">API Keys</button> section
                   </p>
                   <p className="text-xs text-white/60">3. Create a new API key and paste it here</p>
-                </>
-              )}
-            </div>
+                </div>
+              </div>
+            )}
           </div>
           
           <div className="space-y-2 mt-4">
@@ -500,18 +685,24 @@ export function SettingsDialog({ open: externalOpen, onOpenChange }: SettingsDia
             </div>
           </div>
           
+          {/* AI Model Selection - Show for both coding and MCQ modes */}
           <div className="space-y-4 mt-4">
             <label className="text-sm font-medium text-white">AI Model Selection</label>
             <p className="text-xs text-white/60 -mt-3 mb-2">
-              Select which models to use for each stage of the process
+              {solvingMode === "coding" 
+                ? "Select which models to use for each stage of the process"
+                : "Select which model to use for MCQ analysis"
+              }
             </p>
-            
-            {modelCategories.map((category) => {
+          
+          {solvingMode === "coding" ? (
+            // Coding mode - show all models except MCQ
+            modelCategories.filter(category => category.key !== 'mcqModel').map((category) => {
               // Get the appropriate model list based on selected provider
               const models = 
                 apiProvider === "openai" ? category.openaiModels : 
                 apiProvider === "gemini" ? category.geminiModels :
-                category.anthropicModels;
+                category.openrouterModels;
               
               return (
                 <div key={category.key} className="mb-4">
@@ -561,8 +752,55 @@ export function SettingsDialog({ open: externalOpen, onOpenChange }: SettingsDia
                   </div>
                 </div>
               );
-            })}
-          </div>
+            })
+          ) : (
+            // MCQ mode - show only MCQ model
+            (() => {
+              const mcqCategory = modelCategories.find(category => category.key === 'mcqModel');
+              if (!mcqCategory) return null;
+              
+              const models = 
+                apiProvider === "openai" ? mcqCategory.openaiModels : 
+                apiProvider === "gemini" ? mcqCategory.geminiModels :
+                mcqCategory.openrouterModels;
+              
+              return (
+                <div className="mb-4">
+                  <label className="text-sm font-medium text-white mb-1 block">
+                    {mcqCategory.title}
+                  </label>
+                  <p className="text-xs text-white/60 mb-2">{mcqCategory.description}</p>
+                  
+                  <div className="space-y-2">
+                    {models.map((m) => (
+                      <div
+                        key={m.id}
+                        className={`p-2 rounded-lg cursor-pointer transition-colors ${
+                          mcqModel === m.id
+                            ? "bg-white/10 border border-white/20"
+                            : "bg-black/30 border border-white/5 hover:bg-white/5"
+                        }`}
+                        onClick={() => setMcqModel(m.id)}
+                      >
+                        <div className="flex items-center gap-2">
+                          <div
+                            className={`w-3 h-3 rounded-full ${
+                              mcqModel === m.id ? "bg-white" : "bg-white/20"
+                            }`}
+                          />
+                          <div>
+                            <p className="font-medium text-white text-xs">{m.name}</p>
+                            <p className="text-xs text-white/60">{m.description}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()
+          )}
+        </div>
         </div>
         <DialogFooter className="flex justify-between sm:justify-between">
           <Button
@@ -575,7 +813,11 @@ export function SettingsDialog({ open: externalOpen, onOpenChange }: SettingsDia
           <Button
             className="px-4 py-3 bg-white text-black rounded-xl font-medium hover:bg-white/90 transition-colors"
             onClick={handleSave}
-            disabled={isLoading || !apiKey}
+            disabled={isLoading || (
+              apiProvider === "openai" && !openaiApiKey ||
+              apiProvider === "gemini" && !geminiApiKey ||
+              apiProvider === "openrouter" && !openrouterApiKey
+            )}
           >
             {isLoading ? "Saving..." : "Save Settings"}
           </Button>

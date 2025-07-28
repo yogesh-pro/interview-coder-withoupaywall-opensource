@@ -16,12 +16,18 @@
 
 > ## 🔑 API KEY INFORMATION - UPDATED
 >
-> We have tested and confirmed that **both Gemini and OpenAI APIs work properly** with the current version. If you are experiencing issues with your API keys:
+> We support **OpenAI, Gemini, and OpenRouter APIs** with the current version. Each service now uses a unique API key for better organization and security:
+>
+> - **OpenAI**: Use your OpenAI API key for GPT-4o models
+> - **Gemini**: Use your Google AI Studio API key for Gemini 2.0 Flash and Gemini 2.5 Pro models  
+> - **OpenRouter**: Use your OpenRouter API key to access multiple models from different providers
+>
+> If you are experiencing issues with your API keys:
 >
 > - Try deleting your API key entry from the config file located in your user data directory
 > - Log out and log back in to the application
 > - Check your API key dashboard to verify the key is active and has sufficient credits
-> - Ensure you're using the correct API key format (OpenAI keys start with "sk-")
+> - Ensure you're using the correct API key format (OpenAI keys start with "sk-", OpenRouter keys start with "sk-or-")
 >
 > The configuration file is stored at: `C:\Users\[USERNAME]\AppData\Roaming\interview-coder-v1\config.json` (on Windows) or `/Users/[USERNAME]/Library/Application Support/interview-coder-v1/config.json` (on macOS)
 
@@ -42,7 +48,7 @@ The best coding interview tools are often behind expensive paywalls, making them
 
 The codebase is designed to be adaptable:
 
-- **AI Models**: Though currently using OpenAI's models, you can modify the code to integrate with other providers like Claude, Deepseek, Llama, or any model with an API. All integration code is in `electron/ProcessingHelper.ts` and UI settings are in `src/components/Settings/SettingsDialog.tsx`.
+- **AI Models**: Supports OpenAI, Google Gemini, and OpenRouter APIs. You can modify the code to integrate with other providers by updating the API calls in `electron/ProcessingHelper.ts` and UI settings in `src/components/Settings/SettingsDialog.tsx`.
 - **Languages**: Add support for additional programming languages
 - **Features**: Extend the functionality with new capabilities 
 - **UI**: Customize the interface to your preferences
@@ -53,12 +59,15 @@ All it takes is modest JavaScript/TypeScript knowledge and understanding of the 
 
 - 🎯 99% Invisibility: Undetectable window that bypasses most screen capture methods
 - 📸 Smart Screenshot Capture: Capture both question text and code separately for better analysis
-- 🤖 AI-Powered Analysis: Automatically extracts and analyzes coding problems using GPT-4o
-- 💡 Solution Generation: Get detailed explanations and solutions with time/space complexity analysis
+- 🤖 AI-Powered Analysis: Automatically extracts and analyzes problems using multiple AI providers (OpenAI, Gemini, OpenRouter)
+- 💡 Dual Processing Modes:
+  - **Coding Questions**: 2-step process with detailed solutions, complexity analysis, and debugging
+  - **MCQ Questions**: Direct analysis with immediate answers and reasoning for multiple choice questions
 - 🔧 Real-time Debugging: Debug your code with AI assistance and structured feedback
 - 🎨 Advanced Window Management: Freely move, resize, change opacity, and zoom the window
-- 🔄 Model Selection: Choose between GPT-4o and GPT-4o-mini for different processing stages
-- 🔒 Privacy-Focused: Your API key and data never leave your computer except for OpenAI API calls
+- 🔄 Multi-Provider Support: Choose between OpenAI, Gemini, and OpenRouter with model selection
+- 📝 MCQ Question Types: Supports single correct, multiple correct, and true/false questions
+- 🔒 Privacy-Focused: Your API key and data never leave your computer except for API calls
 
 ## Global Commands
 
@@ -96,7 +105,10 @@ Note: The application is **NOT** invisible to:
 
 - Node.js (v16 or higher)
 - npm or bun package manager
-- OpenAI API Key
+- API Key from one of the supported providers:
+  - **OpenAI API Key** (for GPT-4o models)
+  - **Gemini API Key** (for Gemini 2.0 Flash and 2.5 Pro models)
+  - **OpenRouter API Key** (for access to multiple model providers)
 - Screen Recording Permission for Terminal/IDE
   - On macOS:
     1. Go to System Preferences > Security & Privacy > Privacy > Screen Recording
@@ -182,7 +194,7 @@ The packaged applications will be available in the `release` directory.
 
 - **API Usage**: Be mindful of your OpenAI API key's rate limits and credit usage. Vision API calls are more expensive than text-only calls.
 
-- **LLM Customization**: You can easily customize the app to include LLMs like Claude, Deepseek, or Grok by modifying the API calls in `ProcessingHelper.ts` and related UI components.
+- **LLM Customization**: You can easily customize the app to include additional LLMs by modifying the API calls in `ProcessingHelper.ts` and related UI components. OpenRouter integration provides access to multiple models.
 
 - **Common Issues**:
   - Run `npm run clean` before starting the app for a fresh build
@@ -221,36 +233,45 @@ The packaged applications will be available in the `release` directory.
 
 1. **Initial Setup**
    - Launch the invisible window
-   - Enter your OpenAI API key in the settings
-   - Choose your preferred model for extraction, solution generation, and debugging
+   - Enter your API key in the settings (OpenAI, Gemini, or OpenRouter)
+   - Choose your preferred AI provider and models
+   - Select your solving mode (Coding Questions or MCQ Questions)
 
-2. **Capturing Problem**
-   - Use global shortcut [Control or Cmd + H] to take screenshots of code problems
-   - Screenshots are automatically added to the queue of up to 2
+2. **Solving Mode Selection**
+   - **Coding Questions Mode**: Traditional 2-step process (extract problem → generate solution)
+     - Best for LeetCode-style algorithm problems
+     - Provides detailed code solutions with complexity analysis
+   - **MCQ Questions Mode**: Direct analysis (screenshot → answer + reasoning)
+     - Perfect for multiple choice questions, true/false questions
+     - Supports single correct, multiple correct, and true/false question types
+     - Provides immediate answers with detailed explanations
+
+3. **Capturing Problem**
+   - Use global shortcut [Control or Cmd + H] to take screenshots of questions
+   - Screenshots are automatically added to the queue
    - If needed, remove the last screenshot with [Control or Cmd + L]
 
-3. **Processing**
+4. **Processing**
    - Press [Control or Cmd + Enter] to analyze the screenshots
-   - AI extracts problem requirements from the screenshots using GPT-4 Vision API
-   - The model generates an optimal solution based on the extracted information
-   - All analysis is done using your personal OpenAI API key
+   - **For Coding Questions**: AI extracts problem requirements and generates optimized solutions
+   - **For MCQ Questions**: AI analyzes the question and provides direct answers with reasoning
+   - All analysis is done using your personal API key
 
-4. **Solution & Debugging**
-   - View the generated solutions with detailed explanations
-   - Use debugging feature by taking more screenshots of error messages or code
+5. **Results & Debugging**
+   - **Coding Mode**: View solutions with code, complexity analysis, and detailed explanations
+   - **MCQ Mode**: See the complete question, all options, correct answers, and reasoning
+   - Use debugging feature by taking more screenshots of error messages or additional context
    - Get structured analysis with identified issues, corrections, and optimizations
-   - Toggle between solutions and queue views as needed
 
-5. **Window Management**
+6. **Window Management**
    - Move window using [Control or Cmd + Arrow keys]
    - Toggle visibility with [Control or Cmd + B]
    - Adjust opacity with [Control or Cmd + [] and [Control or Cmd + ]]
    - Window remains invisible to specified screen sharing applications
    - Start a new problem using [Control or Cmd + R]
 
-6. **Language Selection
-
-   - Easily switch between programming languages with a single click
+7. **Language Selection**
+   - Easily switch between programming languages with a single click (Coding mode only)
    - Use arrow keys for keyboard navigation through available languages
    - The system dynamically adapts to any languages added or removed from the codebase
    - Your language preference is saved between sessions
@@ -259,7 +280,7 @@ The packaged applications will be available in the `release` directory.
 
 This application is built with extensibility in mind. You can easily add support for additional LLMs alongside the existing OpenAI integration:
 
-- You can add Claude, Deepseek, Grok, or any other AI model as alternative options
+- You can add additional AI model providers as alternative options through OpenRouter or direct API integration
 - The application architecture allows for multiple LLM backends to coexist
 - Users can have the freedom to choose their preferred AI provider
 

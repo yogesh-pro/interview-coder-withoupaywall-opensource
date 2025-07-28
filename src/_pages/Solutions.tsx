@@ -5,6 +5,7 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
 import { dracula } from "react-syntax-highlighter/dist/esm/styles/prism"
 
 import ScreenshotQueue from "../components/Queue/ScreenshotQueue"
+import MCQSolution from "../components/MCQ/MCQSolution"
 
 import { ProblemStatementData } from "../types/solutions"
 import SolutionCommands from "../components/Solutions/SolutionCommands"
@@ -192,6 +193,15 @@ const Solutions: React.FC<SolutionsProps> = ({
     null
   )
 
+  // MCQ-specific state
+  const [mcqData, setMcqData] = useState<{
+    question: string
+    options: string[]
+    correct_options: string[]
+    question_type: "single_correct" | "multiple_correct" | "true_false"
+    reasoning: string
+  } | null>(null)
+
   const [isTooltipVisible, setIsTooltipVisible] = useState(false)
   const [tooltipHeight, setTooltipHeight] = useState(0)
 
@@ -299,8 +309,9 @@ const Solutions: React.FC<SolutionsProps> = ({
         setThoughtsData(null)
         setTimeComplexityData(null)
         setSpaceComplexityData(null)
+        setMcqData(null)
       }),
-      window.electronAPI.onProblemExtracted((data) => {
+      window.electronAPI.onProblemExtracted((data: any) => {
         queryClient.setQueryData(["problem_statement"], data)
       }),
       //if there was an error processing the initial solution
@@ -320,34 +331,64 @@ const Solutions: React.FC<SolutionsProps> = ({
         setThoughtsData(solution?.thoughts || null)
         setTimeComplexityData(solution?.time_complexity || null)
         setSpaceComplexityData(solution?.space_complexity || null)
+        setMcqData(null) // Reset MCQ data on error
         console.error("Processing error:", error)
       }),
       //when the initial solution is generated, we'll set the solution data to that
-      window.electronAPI.onSolutionSuccess((data) => {
+      window.electronAPI.onSolutionSuccess((data: any) => {
         if (!data) {
           console.warn("Received empty or invalid solution data")
           return
         }
         console.log({ data })
-        const solutionData = {
-          code: data.code,
-          thoughts: data.thoughts,
-          time_complexity: data.time_complexity,
-          space_complexity: data.space_complexity
-        }
 
-        queryClient.setQueryData(["solution"], solutionData)
-        setSolutionData(solutionData.code || null)
-        setThoughtsData(solutionData.thoughts || null)
-        setTimeComplexityData(solutionData.time_complexity || null)
-        setSpaceComplexityData(solutionData.space_complexity || null)
+        // Check if this is MCQ data by looking for MCQ-specific fields
+        const isMCQData = data.question && data.options && data.correct_options && data.question_type && data.reasoning
+
+        if (isMCQData) {
+          // Handle MCQ data
+          console.log("Detected MCQ data:", data)
+          setMcqData({
+            question: data.question,
+            options: data.options,
+            correct_options: data.correct_options,
+            question_type: data.question_type,
+            reasoning: data.reasoning
+          })
+          
+          // Clear regular solution data
+          setSolutionData(null)
+          setThoughtsData(null)
+          setTimeComplexityData(null)
+          setSpaceComplexityData(null)
+          
+          // Store MCQ data in cache for compatibility
+          queryClient.setQueryData(["solution"], data)
+        } else {
+          // Handle regular coding solution data
+          const solutionData = {
+            code: data.code,
+            thoughts: data.thoughts,
+            time_complexity: data.time_complexity,
+            space_complexity: data.space_complexity
+          }
+
+          queryClient.setQueryData(["solution"], solutionData)
+          setSolutionData(solutionData.code || null)
+          setThoughtsData(solutionData.thoughts || null)
+          setTimeComplexityData(solutionData.time_complexity || null)
+          setSpaceComplexityData(solutionData.space_complexity || null)
+          
+          // Clear MCQ data
+          setMcqData(null)
+        }
 
         // Fetch latest screenshots when solution is successful
         const fetchScreenshots = async () => {
           try {
             const existing = await window.electronAPI.getScreenshots()
             const screenshots =
-              existing.previews?.map((p) => ({
+              existing.previews?.map((p: any) => ({
                 id: p.path,
                 path: p.path,
                 preview: p.preview,
@@ -370,7 +411,7 @@ const Solutions: React.FC<SolutionsProps> = ({
         setDebugProcessing(true)
       }),
       //the first time debugging works, we'll set the view to debug and populate the cache with the data
-      window.electronAPI.onDebugSuccess((data) => {
+      window.electronAPI.onDebugSuccess((data: any) => {
         queryClient.setQueryData(["new_solution"], data)
         setDebugProcessing(false)
       }),
@@ -412,17 +453,33 @@ const Solutions: React.FC<SolutionsProps> = ({
         )
       }
       if (event?.query.queryKey[0] === "solution") {
-        const solution = queryClient.getQueryData(["solution"]) as {
-          code: string
-          thoughts: string[]
-          time_complexity: string
-          space_complexity: string
-        } | null
+        const solution = queryClient.getQueryData(["solution"]) as any
 
-        setSolutionData(solution?.code ?? null)
-        setThoughtsData(solution?.thoughts ?? null)
-        setTimeComplexityData(solution?.time_complexity ?? null)
-        setSpaceComplexityData(solution?.space_complexity ?? null)
+        // Check if this is MCQ data
+        const isMCQData = solution?.question && solution?.options && solution?.correct_options && solution?.question_type && solution?.reasoning
+
+        if (isMCQData) {
+          setMcqData({
+            question: solution.question,
+            options: solution.options,
+            correct_options: solution.correct_options,
+            question_type: solution.question_type,
+            reasoning: solution.reasoning
+          })
+          // Clear regular solution data
+          setSolutionData(null)
+          setThoughtsData(null)
+          setTimeComplexityData(null)
+          setSpaceComplexityData(null)
+        } else {
+          // Handle regular solution data
+          setSolutionData(solution?.code ?? null)
+          setThoughtsData(solution?.thoughts ?? null)
+          setTimeComplexityData(solution?.time_complexity ?? null)
+          setSpaceComplexityData(solution?.space_complexity ?? null)
+          // Clear MCQ data
+          setMcqData(null)
+        }
       }
     })
     return () => unsubscribe()
@@ -475,8 +532,8 @@ const Solutions: React.FC<SolutionsProps> = ({
       ) : (
         <div ref={contentRef} className="relative">
           <div className="space-y-3 px-4 py-3">
-          {/* Conditionally render the screenshot queue if solutionData is available */}
-          {solutionData && (
+          {/* Conditionally render the screenshot queue if solutionData or mcqData is available */}
+          {(solutionData || mcqData) && (
             <div className="bg-transparent w-fit">
               <div className="pb-3">
                 <div className="space-y-3 w-fit">
@@ -493,7 +550,7 @@ const Solutions: React.FC<SolutionsProps> = ({
           {/* Navbar of commands with the SolutionsHelper */}
           <SolutionCommands
             onTooltipVisibilityChange={handleTooltipVisibilityChange}
-            isProcessing={!problemStatementData || !solutionData}
+            isProcessing={!problemStatementData && !solutionData && !mcqData}
             extraScreenshots={extraScreenshots}
             credits={credits}
             currentLanguage={currentLanguage}
@@ -504,7 +561,7 @@ const Solutions: React.FC<SolutionsProps> = ({
           <div className="w-full text-sm text-black bg-black/60 rounded-md">
             <div className="rounded-lg overflow-hidden">
               <div className="px-4 py-3 space-y-4 max-w-full">
-                {!solutionData && (
+                {!solutionData && !mcqData && (
                   <>
                     <ContentSection
                       title="Problem Statement"
@@ -521,7 +578,19 @@ const Solutions: React.FC<SolutionsProps> = ({
                   </>
                 )}
 
-                {solutionData && (
+                {/* Render MCQ Solution */}
+                {mcqData && (
+                  <MCQSolution
+                    question={mcqData.question}
+                    options={mcqData.options}
+                    correctOptions={mcqData.correct_options}
+                    questionType={mcqData.question_type}
+                    reasoning={mcqData.reasoning}
+                  />
+                )}
+
+                {/* Render Regular Coding Solution */}
+                {solutionData && !mcqData && (
                   <>
                     <ContentSection
                       title={`My Thoughts (${COMMAND_KEY} + Arrow keys to scroll)`}

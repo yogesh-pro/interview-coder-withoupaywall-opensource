@@ -1,0 +1,38 @@
+{
+  "appId": "com.chunginlee.interviewcoder",
+  "productName": "Interview Coder",
+  "files": [
+    "dist/**/*",
+    "dist-electron/**/*",
+    "package.json",
+    "electron/**/*"
+  ],
+  "directories": {
+    "output": "release",
+    "buildResources": "assets"
+  },
+  "asar": true,
+  "compression": "maximum",
+  "generateUpdatesFilesForAllChannels": true,
+  "mac": {
+    "category": "public.app-category.developer-tools",
+    "target": [
+      {
+        "target": "dmg",
+        "arch": [
+          "arm64"
+        ]
+      }
+    ],
+    "artifactName": "Interview-Coder-M1-${version}.${ext}",
+    "icon": "assets/icons/mac/icon.icns",
+    "hardenedRuntime": false,
+    "gatekeeperAssess": false,
+    "protocols": {
+      "name": "interview-coder-protocol",
+      "schemes": [
+        "interview-coder"
+      ]
+    }
+  }
+}

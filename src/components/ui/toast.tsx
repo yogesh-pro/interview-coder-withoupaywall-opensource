@@ -55,24 +55,29 @@ const toastVariants: Record<
 const Toast = React.forwardRef<
   React.ElementRef<typeof ToastPrimitive.Root>,
   ToastProps
->(({ className, variant = "neutral", ...props }, ref) => (
-  <ToastPrimitive.Root
-    ref={ref}
-    duration={4000}
-    className={cn(
-      "group pointer-events-auto relative flex w-full items-center space-x-2 overflow-hidden rounded-md p-2",
-      toastVariants[variant].bgColor,
-      className
-    )}
-    {...props}
-  >
-    {toastVariants[variant].icon}
-    <div className="flex-1">{props.children}</div>
-    <ToastPrimitive.Close className="absolute right-1 top-1 rounded-md p-0.5 text-zinc-500 opacity-0 transition-opacity hover:text-zinc-700 group-hover:opacity-100">
-      <X className="h-2 w-2" />
-    </ToastPrimitive.Close>
-  </ToastPrimitive.Root>
-))
+>(({ className, variant = "neutral", ...props }, ref) => {
+  // Set different durations based on variant - errors stay longer for better visibility
+  const duration = variant === "error" ? 5000 : 4000;
+  
+  return (
+    <ToastPrimitive.Root
+      ref={ref}
+      duration={duration}
+      className={cn(
+        "group pointer-events-auto relative flex w-full items-center space-x-2 overflow-hidden rounded-md p-2",
+        toastVariants[variant].bgColor,
+        className
+      )}
+      {...props}
+    >
+      {toastVariants[variant].icon}
+      <div className="flex-1">{props.children}</div>
+      <ToastPrimitive.Close className="absolute right-1 top-1 rounded-md p-0.5 text-zinc-500 opacity-0 transition-opacity hover:text-zinc-700 group-hover:opacity-100">
+        <X className="h-2 w-2" />
+      </ToastPrimitive.Close>
+    </ToastPrimitive.Root>
+  );
+})
 Toast.displayName = ToastPrimitive.Root.displayName
 
 const ToastAction = React.forwardRef<

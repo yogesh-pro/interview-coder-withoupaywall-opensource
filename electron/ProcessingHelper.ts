@@ -7,7 +7,6 @@ import * as axios from "axios"
 import { app, BrowserWindow, dialog } from "electron"
 import { OpenAI } from "openai"
 import { configHelper } from "./ConfigHelper"
-import Anthropic from '@anthropic-ai/sdk';
 
 // Interface for Gemini API requests
 interface GeminiMessage {
@@ -31,24 +30,16 @@ interface GeminiResponse {
     finishReason: string;
   }>;
 }
-interface AnthropicMessage {
-  role: 'user' | 'assistant';
-  content: Array<{
-    type: 'text' | 'image';
-    text?: string;
-    source?: {
-      type: 'base64';
-      media_type: string;
-      data: string;
-    };
-  }>;
-}
+
 export class ProcessingHelper {
   private deps: IProcessingHelperDeps
   private screenshotHelper: ScreenshotHelper
   private openaiClient: OpenAI | null = null
   private geminiApiKey: string | null = null
-  private anthropicClient: Anthropic | null = null
+  private openrouterClient: OpenAI | null = null // OpenRouter uses OpenAI-compatible API
+  
+  // Flag to prevent repeated API key error notifications
+  private apiKeyErrorShown: boolean = false
 
   // AbortControllers for API requests
   private currentProcessingAbortController: AbortController | null = null
@@ -75,57 +66,63 @@ export class ProcessingHelper {
       const config = configHelper.loadConfig();
       
       if (config.apiProvider === "openai") {
-        if (config.apiKey) {
+        const apiKey = config.openaiApiKey || config.apiKey; // Support legacy key
+        if (apiKey) {
           this.openaiClient = new OpenAI({ 
-            apiKey: config.apiKey,
+            apiKey: apiKey,
             timeout: 60000, // 60 second timeout
             maxRetries: 2   // Retry up to 2 times
           });
           this.geminiApiKey = null;
-          this.anthropicClient = null;
+          this.openrouterClient = null;
           console.log("OpenAI client initialized successfully");
+          this.apiKeyErrorShown = false; // Reset error flag on successful initialization
         } else {
           this.openaiClient = null;
           this.geminiApiKey = null;
-          this.anthropicClient = null;
+          this.openrouterClient = null;
           console.warn("No API key available, OpenAI client not initialized");
         }
       } else if (config.apiProvider === "gemini"){
         // Gemini client initialization
         this.openaiClient = null;
-        this.anthropicClient = null;
-        if (config.apiKey) {
-          this.geminiApiKey = config.apiKey;
+        this.openrouterClient = null;
+        const apiKey = config.geminiApiKey || config.apiKey; // Support legacy key
+        if (apiKey) {
+          this.geminiApiKey = apiKey;
           console.log("Gemini API key set successfully");
+          this.apiKeyErrorShown = false; // Reset error flag on successful initialization
         } else {
           this.openaiClient = null;
           this.geminiApiKey = null;
-          this.anthropicClient = null;
+          this.openrouterClient = null;
           console.warn("No API key available, Gemini client not initialized");
         }
-      } else if (config.apiProvider === "anthropic") {
+      } else if (config.apiProvider === "openrouter") {
         // Reset other clients
         this.openaiClient = null;
         this.geminiApiKey = null;
-        if (config.apiKey) {
-          this.anthropicClient = new Anthropic({
-            apiKey: config.apiKey,
+        const apiKey = config.openrouterApiKey || config.apiKey; // Support legacy key
+        if (apiKey) {
+          this.openrouterClient = new OpenAI({
+            apiKey: apiKey,
+            baseURL: "https://openrouter.ai/api/v1",
             timeout: 60000,
             maxRetries: 2
           });
-          console.log("Anthropic client initialized successfully");
+          console.log("OpenRouter client initialized successfully");
         } else {
           this.openaiClient = null;
           this.geminiApiKey = null;
-          this.anthropicClient = null;
-          console.warn("No API key available, Anthropic client not initialized");
+          this.openrouterClient = null;
+          console.warn("No API key available, OpenRouter client not initialized");
         }
       }
     } catch (error) {
       console.error("Failed to initialize AI client:", error);
       this.openaiClient = null;
       this.geminiApiKey = null;
-      this.anthropicClient = null;
+      this.openrouterClient = null;
     }
   }
 
@@ -156,6 +153,58 @@ export class ProcessingHelper {
     } catch (error) {
       console.error("Error getting credits:", error)
       return 999 // Unlimited credits as fallback
+    }
+  }
+
+  private sanitizeJsonString(jsonString: string): string {
+    // Remove or replace problematic control characters that can break JSON parsing
+    // Only remove the most problematic control characters while preserving valid JSON structure
+    let sanitized = jsonString
+      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '') // Remove most control characters except \t, \n, \r
+      .replace(/\u0000/g, '') // Remove null characters
+      .replace(/\u0008/g, '') // Remove backspace
+      .replace(/\u000C/g, '') // Remove form feed
+      .trim();
+    
+    // Try to fix common JSON issues
+    // Remove any trailing commas before closing braces/brackets
+    sanitized = sanitized.replace(/,(\s*[}\]])/g, '$1');
+    
+    // If the JSON seems to be cut off (unterminated string), try to fix it
+    if (sanitized.includes('"') && !this.isValidJsonStructure(sanitized)) {
+      // Try to close unterminated strings
+      const openQuotes = (sanitized.match(/"/g) || []).length;
+      if (openQuotes % 2 !== 0) {
+        // Add closing quote for the last unterminated string
+        sanitized += '"';
+      }
+      
+      // Try to close any unclosed objects/arrays
+      const openBraces = (sanitized.match(/\{/g) || []).length;
+      const closeBraces = (sanitized.match(/\}/g) || []).length;
+      const openBrackets = (sanitized.match(/\[/g) || []).length;
+      const closeBrackets = (sanitized.match(/\]/g) || []).length;
+      
+      // Add missing closing braces
+      for (let i = 0; i < openBraces - closeBraces; i++) {
+        sanitized += '}';
+      }
+      
+      // Add missing closing brackets
+      for (let i = 0; i < openBrackets - closeBraces; i++) {
+        sanitized += ']';
+      }
+    }
+    
+    return sanitized;
+  }
+  
+  private isValidJsonStructure(jsonString: string): boolean {
+    try {
+      JSON.parse(jsonString);
+      return true;
+    } catch {
+      return false;
     }
   }
 
@@ -206,32 +255,29 @@ export class ProcessingHelper {
     if (config.apiProvider === "openai" && !this.openaiClient) {
       this.initializeAIClient();
       
-      if (!this.openaiClient) {
+      if (!this.openaiClient && !this.apiKeyErrorShown) {
         console.error("OpenAI client not initialized");
+        this.apiKeyErrorShown = true;
         mainWindow.webContents.send(
           this.deps.PROCESSING_EVENTS.API_KEY_INVALID
         );
+        return;
+      } else if (!this.openaiClient) {
+        // Already shown error, just return
         return;
       }
     } else if (config.apiProvider === "gemini" && !this.geminiApiKey) {
       this.initializeAIClient();
       
-      if (!this.geminiApiKey) {
+      if (!this.geminiApiKey && !this.apiKeyErrorShown) {
         console.error("Gemini API key not initialized");
+        this.apiKeyErrorShown = true;
         mainWindow.webContents.send(
           this.deps.PROCESSING_EVENTS.API_KEY_INVALID
         );
         return;
-      }
-    } else if (config.apiProvider === "anthropic" && !this.anthropicClient) {
-      // Add check for Anthropic client
-      this.initializeAIClient();
-      
-      if (!this.anthropicClient) {
-        console.error("Anthropic client not initialized");
-        mainWindow.webContents.send(
-          this.deps.PROCESSING_EVENTS.API_KEY_INVALID
-        );
+      } else if (!this.geminiApiKey) {
+        // Already shown error, just return
         return;
       }
     }
@@ -286,7 +332,10 @@ export class ProcessingHelper {
           throw new Error("Failed to load screenshot data");
         }
 
-        const result = await this.processScreenshotsHelper(validScreenshots, signal)
+        // Check solving mode and call appropriate processing method
+        const result = config.solvingMode === "mcq" 
+          ? await this.processMCQScreenshotsHelper(validScreenshots, signal)
+          : await this.processScreenshotsHelper(validScreenshots, signal);
 
         if (!result.success) {
           console.log("Processing failed:", result.error)
@@ -498,7 +547,7 @@ export class ProcessingHelper {
         const extractionResponse = await this.openaiClient.chat.completions.create({
           model: config.extractionModel || "gpt-4o",
           messages: messages,
-          max_tokens: 4000,
+          max_tokens: 16000, // Increased from 8000 to prevent MAX_TOKENS truncation
           temperature: 0.2
         });
 
@@ -550,7 +599,7 @@ export class ProcessingHelper {
               contents: geminiMessages,
               generationConfig: {
                 temperature: 0.2,
-                maxOutputTokens: 4000
+                maxOutputTokens: 16000 // Increased from 8000 to prevent MAX_TOKENS truncation
               }
             },
             { signal }
@@ -558,80 +607,127 @@ export class ProcessingHelper {
 
           const responseData = response.data as GeminiResponse;
           
-          if (!responseData.candidates || responseData.candidates.length === 0) {
-            throw new Error("Empty response from Gemini API");
+          // Validate Gemini response structure with better error handling for MAX_TOKENS
+          if (!responseData || !responseData.candidates || !Array.isArray(responseData.candidates) || responseData.candidates.length === 0) {
+            console.error("Invalid Gemini response structure:", responseData);
+            return {
+              success: false,
+              error: "Empty or invalid response from Gemini API"
+            };
           }
           
-          const responseText = responseData.candidates[0].content.parts[0].text;
+          const candidate = responseData.candidates[0];
+          
+          // Check for MAX_TOKENS or other finish reasons that might affect content structure
+          if (candidate && candidate.finishReason === 'MAX_TOKENS') {
+            console.error("Gemini API response truncated due to MAX_TOKENS:", candidate);
+            return {
+              success: false,
+              error: "Response was truncated due to token limit. Please try with a shorter prompt or increase model's max tokens."
+            };
+          }
+          
+          if (!candidate || !candidate.content || !candidate.content.parts || !Array.isArray(candidate.content.parts) || candidate.content.parts.length === 0) {
+            console.error("Invalid candidate structure:", candidate);
+            
+            // Provide more specific error messages based on the structure
+            if (candidate && candidate.finishReason) {
+              return {
+                success: false,
+                error: `Gemini API response incomplete. Finish reason: ${candidate.finishReason}. Please try again or use a different model.`
+              };
+            }
+            
+            return {
+              success: false,
+              error: "Invalid response structure from Gemini API. The response may be incomplete or malformed."
+            };
+          }
+          
+          const responsePart = candidate.content.parts[0];
+          if (!responsePart || !responsePart.text) {
+            console.error("Invalid response part:", responsePart);
+            return {
+              success: false,
+              error: "No text content in Gemini API response. The response may be empty or incomplete."
+            };
+          }
+          
+          const responseText = responsePart.text;
           
           // Handle when Gemini might wrap the JSON in markdown code blocks
           const jsonText = responseText.replace(/```json|```/g, '').trim();
           problemInfo = JSON.parse(jsonText);
         } catch (error) {
           console.error("Error using Gemini API:", error);
-          return {
-            success: false,
-            error: "Failed to process with Gemini API. Please check your API key or try again later."
-          };
+          
+          // Enhanced error handling for Gemini API specific errors
+          if (error instanceof Error) {
+            if (error.message.includes("MAX_TOKENS") || error.message.includes("token limit")) {
+              throw new Error("Response was truncated due to token limit. Please try with a shorter prompt or increase model's max tokens.");
+            }
+            if (error.message.includes("finish reason")) {
+              throw new Error(error.message);
+            }
+            if (error.message.includes("Invalid candidate structure")) {
+              throw new Error("The API response was incomplete or malformed. This may be due to content filtering or API limits. Please try again with a different prompt.");
+            }
+          }
+          
+          throw new Error("Failed to process with Gemini API. Please check your API key or try again later.");
         }
-      } else if (config.apiProvider === "anthropic") {
-        if (!this.anthropicClient) {
+      } else if (config.apiProvider === "openrouter") {
+        // OpenRouter processing using OpenAI-compatible API
+        if (!this.openrouterClient) {
           return {
             success: false,
-            error: "Anthropic API key not configured. Please check your settings."
+            error: "OpenRouter API key not configured. Please check your settings."
           };
         }
 
         try {
-          const messages = [
-            {
-              role: "user" as const,
-              content: [
-                {
-                  type: "text" as const,
-                  text: `Extract the coding problem details from these screenshots. Return in JSON format with these fields: problem_statement, constraints, example_input, example_output. Preferred coding language is ${language}.`
-                },
-                ...imageDataList.map(data => ({
-                  type: "image" as const,
-                  source: {
-                    type: "base64" as const,
-                    media_type: "image/png" as const,
-                    data: data
-                  }
-                }))
-              ]
+          const imageMessages = imageDataList.map(data => ({
+            type: "image_url" as const,
+            image_url: {
+              url: `data:image/png;base64,${data}`,
+              detail: "high" as const
             }
-          ];
+          }));
 
-          const response = await this.anthropicClient.messages.create({
-            model: config.extractionModel || "claude-3-7-sonnet-20250219",
-            max_tokens: 4000,
-            messages: messages,
+          const response = await this.openrouterClient.chat.completions.create({
+            model: config.extractionModel || config.openrouterModel || "meta-llama/llama-3.1-8b-instruct:free",
+            messages: [
+              { 
+                role: "system", 
+                content: "You are an expert at analyzing coding problem screenshots and extracting structured information." 
+              },
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "text",
+                    text: `Extract the coding problem details from these screenshots. Return in JSON format with these fields: problem_statement, constraints, example_input, example_output. Preferred coding language is ${language}.`
+                  },
+                  ...imageMessages
+                ]
+              }
+            ],
+            max_tokens: 16000, // Increased from 8000 to prevent MAX_TOKENS truncation
             temperature: 0.2
           });
 
-          const responseText = (response.content[0] as { type: 'text', text: string }).text;
-          const jsonText = responseText.replace(/```json|```/g, '').trim();
-          problemInfo = JSON.parse(jsonText);
-        } catch (error: any) {
-          console.error("Error using Anthropic API:", error);
-
-          // Add specific handling for Claude's limitations
-          if (error.status === 429) {
-            return {
-              success: false,
-              error: "Claude API rate limit exceeded. Please wait a few minutes before trying again."
-            };
-          } else if (error.status === 413 || (error.message && error.message.includes("token"))) {
-            return {
-              success: false,
-              error: "Your screenshots contain too much information for Claude to process. Switch to OpenAI or Gemini in settings which can handle larger inputs."
-            };
+          const responseContent = response.choices[0].message.content;
+          if (!responseContent) {
+            throw new Error("Empty response from OpenRouter API");
           }
 
+          const jsonText = responseContent.replace(/```json|```/g, '').trim();
+          problemInfo = JSON.parse(jsonText);
+        } catch (error) {
+          console.error("Error using OpenRouter API:", error);
           return {
             success: false,
-            error: "Failed to process with Anthropic API. Please check your API key or try again later."
+            error: "Failed to process with OpenRouter API. Please check your API key or try again later."
           };
         }
       }
@@ -780,7 +876,7 @@ Your solution should be efficient, well-commented, and handle edge cases.
             { role: "system", content: "You are an expert coding interview assistant. Provide clear, optimal solutions with detailed explanations." },
             { role: "user", content: promptText }
           ],
-          max_tokens: 4000,
+          max_tokens: 16000, // Increased from 8000 to prevent MAX_TOKENS truncation
           temperature: 0.2
         });
 
@@ -809,12 +905,12 @@ Your solution should be efficient, well-commented, and handle edge cases.
 
           // Make API request to Gemini
           const response = await axios.default.post(
-            `https://generativelanguage.googleapis.com/v1beta/models/${config.solutionModel || "gemini-2.0-flash"}:generateContent?key=${this.geminiApiKey}`,
+            `https://generativelanguage.googleapis.com/v1beta/models/${config.mcqModel || "gemini-2.5-flash"}:generateContent?key=${this.geminiApiKey}`,
             {
               contents: geminiMessages,
               generationConfig: {
                 temperature: 0.2,
-                maxOutputTokens: 4000
+                maxOutputTokens: 16000 // Increased from 8000 to prevent MAX_TOKENS truncation
               }
             },
             { signal }
@@ -822,11 +918,54 @@ Your solution should be efficient, well-commented, and handle edge cases.
 
           const responseData = response.data as GeminiResponse;
           
-          if (!responseData.candidates || responseData.candidates.length === 0) {
-            throw new Error("Empty response from Gemini API");
+          // Helper method to validate Gemini response structure
+          const validateGeminiResponse = (responseData: any): { success: boolean; error?: string; text?: string } => {
+            if (!responseData) {
+              return { success: false, error: "No response data from Gemini API" };
+            }
+            
+            if (!responseData.candidates || !Array.isArray(responseData.candidates) || responseData.candidates.length === 0) {
+              console.error("Invalid Gemini response structure:", responseData);
+              return { success: false, error: "Empty or invalid candidates array from Gemini API" };
+            }
+            
+            const candidate = responseData.candidates[0];
+            
+            // Check for MAX_TOKENS or other finish reasons that might affect content structure
+            if (candidate && candidate.finishReason === 'MAX_TOKENS') {
+              console.error("Gemini API response truncated due to MAX_TOKENS:", candidate);
+              return { success: false, error: "Response was truncated due to token limit. Please try with a shorter prompt or increase model's max tokens." };
+            }
+            
+            if (!candidate || !candidate.content || !candidate.content.parts || !Array.isArray(candidate.content.parts) || candidate.content.parts.length === 0) {
+              console.error("Invalid candidate structure:", candidate);
+              
+              // Provide more specific error messages based on the structure
+              if (candidate && candidate.finishReason) {
+                return { success: false, error: `Gemini API response incomplete. Finish reason: ${candidate.finishReason}. Please try again or use a different model.` };
+              }
+              
+              return { success: false, error: "Invalid response structure from Gemini API. The response may be incomplete or malformed." };
+            }
+            
+            const responsePart = candidate.content.parts[0];
+            if (!responsePart || !responsePart.text) {
+              console.error("Invalid response part:", responsePart);
+              return { success: false, error: "No text content in Gemini API response. The response may be empty or incomplete." };
+            }
+            
+            return { success: true, text: responsePart.text };
+          }
+
+          const validationResult = validateGeminiResponse(responseData);
+          if (!validationResult.success) {
+            return {
+              success: false,
+              error: validationResult.error
+            };
           }
           
-          responseContent = responseData.candidates[0].content.parts[0].text;
+          responseContent = validationResult.text;
         } catch (error) {
           console.error("Error using Gemini API for solution:", error);
           return {
@@ -834,56 +973,32 @@ Your solution should be efficient, well-commented, and handle edge cases.
             error: "Failed to generate solution with Gemini API. Please check your API key or try again later."
           };
         }
-      } else if (config.apiProvider === "anthropic") {
-        // Anthropic processing
-        if (!this.anthropicClient) {
+      } else if (config.apiProvider === "openrouter") {
+        // OpenRouter processing
+        if (!this.openrouterClient) {
           return {
             success: false,
-            error: "Anthropic API key not configured. Please check your settings."
+            error: "OpenRouter API key not configured. Please check your settings."
           };
         }
-        
-        try {
-          const messages = [
-            {
-              role: "user" as const,
-              content: [
-                {
-                  type: "text" as const,
-                  text: `You are an expert coding interview assistant. Provide a clear, optimal solution with detailed explanations for this problem:\n\n${promptText}`
-                }
-              ]
-            }
-          ];
 
-          // Send to Anthropic API
-          const response = await this.anthropicClient.messages.create({
-            model: config.solutionModel || "claude-3-7-sonnet-20250219",
-            max_tokens: 4000,
-            messages: messages,
+        try {
+          const solutionResponse = await this.openrouterClient.chat.completions.create({
+            model: config.solutionModel || config.openrouterModel || "meta-llama/llama-3.1-8b-instruct:free",
+            messages: [
+              { role: "system", content: "You are an expert coding interview assistant. Provide clear, optimal solutions with detailed explanations." },
+              { role: "user", content: promptText }
+            ],
+            max_tokens: 16000, // Increased from 8000 to prevent MAX_TOKENS truncation
             temperature: 0.2
           });
 
-          responseContent = (response.content[0] as { type: 'text', text: string }).text;
-        } catch (error: any) {
-          console.error("Error using Anthropic API for solution:", error);
-
-          // Add specific handling for Claude's limitations
-          if (error.status === 429) {
-            return {
-              success: false,
-              error: "Claude API rate limit exceeded. Please wait a few minutes before trying again."
-            };
-          } else if (error.status === 413 || (error.message && error.message.includes("token"))) {
-            return {
-              success: false,
-              error: "Your screenshots contain too much information for Claude to process. Switch to OpenAI or Gemini in settings which can handle larger inputs."
-            };
-          }
-
+          responseContent = solutionResponse.choices[0].message.content;
+        } catch (error) {
+          console.error("Error using OpenRouter API for solution:", error);
           return {
             success: false,
-            error: "Failed to generate solution with Anthropic API. Please check your API key or try again later."
+            error: "Failed to generate solution with OpenRouter API. Please check your API key or try again later."
           };
         }
       }
@@ -893,7 +1008,7 @@ Your solution should be efficient, well-commented, and handle edge cases.
       const code = codeMatch ? codeMatch[1].trim() : responseContent;
       
       // Extract thoughts, looking for bullet points or numbered lists
-      const thoughtsRegex = /(?:Thoughts:|Key Insights:|Reasoning:|Approach:)([\s\S]*?)(?:Time complexity:|$)/i;
+      const thoughtsRegex = /(?:Thoughts:|Key Insights:|Reasoning:|Approach:)([\s\S]*?)(?=\n\s*(?:Space complexity|$))/i;
       const thoughtsMatch = responseContent.match(thoughtsRegex);
       let thoughts: string[] = [];
       
@@ -975,8 +1090,13 @@ Your solution should be efficient, well-commented, and handle edge cases.
           success: false,
           error: "OpenAI API rate limit exceeded or insufficient credits. Please try again later."
         };
+      } else if (error?.response?.status === 500) {
+        return {
+          success: false,
+          error: "OpenAI server error. Please try again later."
+        };
       }
-      
+
       console.error("Solution generation error:", error);
       return { success: false, error: error.message || "Failed to generate solution" };
     }
@@ -1069,7 +1189,7 @@ If you include code examples, use proper markdown code blocks with language spec
         const debugResponse = await this.openaiClient.chat.completions.create({
           model: config.debuggingModel || "gpt-4o",
           messages: messages,
-          max_tokens: 4000,
+          max_tokens: 16000, // Increased from 8000 to prevent MAX_TOKENS truncation
           temperature: 0.2
         });
         
@@ -1135,7 +1255,7 @@ If you include code examples, use proper markdown code blocks with language spec
               contents: geminiMessages,
               generationConfig: {
                 temperature: 0.2,
-                maxOutputTokens: 4000
+                maxOutputTokens: 16000 // Increased from 8000 to prevent MAX_TOKENS truncation
               }
             },
             { signal }
@@ -1143,11 +1263,54 @@ If you include code examples, use proper markdown code blocks with language spec
 
           const responseData = response.data as GeminiResponse;
           
-          if (!responseData.candidates || responseData.candidates.length === 0) {
-            throw new Error("Empty response from Gemini API");
+          // Helper method to validate Gemini response structure
+          const validateGeminiResponse = (responseData: any): { success: boolean; error?: string; text?: string } => {
+            if (!responseData) {
+              return { success: false, error: "No response data from Gemini API" };
+            }
+            
+            if (!responseData.candidates || !Array.isArray(responseData.candidates) || responseData.candidates.length === 0) {
+              console.error("Invalid Gemini response structure:", responseData);
+              return { success: false, error: "Empty or invalid candidates array from Gemini API" };
+            }
+            
+            const candidate = responseData.candidates[0];
+            
+            // Check for MAX_TOKENS or other finish reasons that might affect content structure
+            if (candidate && candidate.finishReason === 'MAX_TOKENS') {
+              console.error("Gemini API response truncated due to MAX_TOKENS:", candidate);
+              return { success: false, error: "Response was truncated due to token limit. Please try with a shorter prompt or increase model's max tokens." };
+            }
+            
+            if (!candidate || !candidate.content || !candidate.content.parts || !Array.isArray(candidate.content.parts) || candidate.content.parts.length === 0) {
+              console.error("Invalid candidate structure:", candidate);
+              
+              // Provide more specific error messages based on the structure
+              if (candidate && candidate.finishReason) {
+                return { success: false, error: `Gemini API response incomplete. Finish reason: ${candidate.finishReason}. Please try again or use a different model.` };
+              }
+              
+              return { success: false, error: "Invalid response structure from Gemini API. The response may be incomplete or malformed." };
+            }
+            
+            const responsePart = candidate.content.parts[0];
+            if (!responsePart || !responsePart.text) {
+              console.error("Invalid response part:", responsePart);
+              return { success: false, error: "No text content in Gemini API response. The response may be empty or incomplete." };
+            }
+            
+            return { success: true, text: responsePart.text };
+          }
+
+          const validationResult = validateGeminiResponse(responseData);
+          if (!validationResult.success) {
+            return {
+              success: false,
+              error: validationResult.error
+            };
           }
           
-          debugContent = responseData.candidates[0].content.parts[0].text;
+          debugContent = validationResult.text;
         } catch (error) {
           console.error("Error using Gemini API for debugging:", error);
           return {
@@ -1155,14 +1318,15 @@ If you include code examples, use proper markdown code blocks with language spec
             error: "Failed to process debug request with Gemini API. Please check your API key or try again later."
           };
         }
-      } else if (config.apiProvider === "anthropic") {
-        if (!this.anthropicClient) {
+      } else if (config.apiProvider === "openrouter") {
+        // OpenRouter processing
+        if (!this.openrouterClient) {
           return {
             success: false,
-            error: "Anthropic API key not configured. Please check your settings."
+            error: "OpenRouter API key not configured. Please check your settings."
           };
         }
-        
+
         try {
           const debugPrompt = `
 You are a coding interview assistant helping debug and improve solutions. Analyze these screenshots which include either error messages, incorrect outputs, or test cases, and provide detailed debugging help.
@@ -1188,60 +1352,43 @@ Here provide a clear explanation of why the changes are needed
 If you include code examples, use proper markdown code blocks with language specification.
 `;
 
-          const messages = [
-            {
-              role: "user" as const,
-              content: [
-                {
-                  type: "text" as const,
-                  text: debugPrompt
-                },
-                ...imageDataList.map(data => ({
-                  type: "image" as const,
-                  source: {
-                    type: "base64" as const,
-                    media_type: "image/png" as const, 
-                    data: data
-                  }
-                }))
-              ]
+          const imageMessages = imageDataList.map(data => ({
+            type: "image_url" as const,
+            image_url: {
+              url: `data:image/png;base64,${data}`,
+              detail: "high" as const
             }
-          ];
+          }));
 
           if (mainWindow) {
             mainWindow.webContents.send("processing-status", {
-              message: "Analyzing code and generating debug feedback with Claude...",
+              message: "Analyzing code and generating debug feedback with OpenRouter...",
               progress: 60
             });
           }
 
-          const response = await this.anthropicClient.messages.create({
-            model: config.debuggingModel || "claude-3-7-sonnet-20250219",
-            max_tokens: 4000,
-            messages: messages,
+          const debugResponse = await this.openrouterClient.chat.completions.create({
+            model: config.debuggingModel || config.openrouterModel || "meta-llama/llama-3.1-8b-instruct:free",
+            messages: [
+              { role: "system", content: "You are an expert coding interview assistant specializing in debugging and code improvement." },
+              {
+                role: "user",
+                content: [
+                  { type: "text", text: debugPrompt },
+                  ...imageMessages
+                ]
+              }
+            ],
+            max_tokens: 16000, // Increased from 8000 to prevent MAX_TOKENS truncation
             temperature: 0.2
           });
-          
-          debugContent = (response.content[0] as { type: 'text', text: string }).text;
-        } catch (error: any) {
-          console.error("Error using Anthropic API for debugging:", error);
-          
-          // Add specific handling for Claude's limitations
-          if (error.status === 429) {
-            return {
-              success: false,
-              error: "Claude API rate limit exceeded. Please wait a few minutes before trying again."
-            };
-          } else if (error.status === 413 || (error.message && error.message.includes("token"))) {
-            return {
-              success: false,
-              error: "Your screenshots contain too much information for Claude to process. Switch to OpenAI or Gemini in settings which can handle larger inputs."
-            };
-          }
-          
+
+          debugContent = debugResponse.choices[0].message.content || "";
+        } catch (error) {
+          console.error("Error using OpenRouter API for debugging:", error);
           return {
             success: false,
-            error: "Failed to process debug request with Anthropic API. Please check your API key or try again later."
+            error: "Failed to process debug request with OpenRouter API. Please check your API key or try again later."
           };
         }
       }
@@ -1287,6 +1434,373 @@ If you include code examples, use proper markdown code blocks with language spec
     } catch (error: any) {
       console.error("Debug processing error:", error);
       return { success: false, error: error.message || "Failed to process debug request" };
+    }
+  }
+
+  private async processMCQScreenshotsHelper(
+    screenshots: Array<{ path: string; data: string }>,
+    signal: AbortSignal
+  ) {
+    try {
+      const config = configHelper.loadConfig();
+      const mainWindow = this.deps.getMainWindow();
+      
+      // Prepare the images for the API call
+      const imageDataList = screenshots.map(screenshot => screenshot.data);
+      
+      // Update the user on progress
+      if (mainWindow) {
+        mainWindow.webContents.send("processing-status", {
+          message: "Analyzing MCQ question from screenshots...",
+          progress: 30
+        });
+      }
+
+      let mcqResponse;
+      
+      if (config.apiProvider === "openai") {
+        // Verify OpenAI client
+        if (!this.openaiClient) {
+          this.initializeAIClient(); // Try to reinitialize
+          
+          if (!this.openaiClient) {
+            return {
+              success: false,
+              error: "OpenAI API key not configured or invalid. Please check your settings."
+            };
+          }
+        }
+
+        // Create the MCQ analysis prompt
+        const messages = [
+          {
+            role: "system" as const, 
+            content: "You are an expert at analyzing multiple choice questions from screenshots. Analyze the question and provide the correct answer with detailed reasoning."
+          },
+          {
+            role: "user" as const,
+            content: [
+              {
+                type: "text" as const, 
+                text: `Analyze MCQ from screenshots. Return ONLY JSON:
+{
+  "question": "complete question text",
+  "options": ["A. Option 1", "B. Option 2", "C. Option 3", "D. Option 4"],
+  "correct_options": ["A"],
+  "question_type": "single_correct",
+  "reasoning": "brief explanation"
+}
+
+question_type: "single_correct", "multiple_correct", or "true_false"
+correct_options: array of letters (["A"], ["A","B"], etc.)`
+              },
+              ...imageDataList.map(data => ({
+                type: "image_url" as const,
+                image_url: { url: `data:image/png;base64,${data}` }
+              }))
+            ]
+          }
+        ];
+
+        // Update progress
+        if (mainWindow) {
+          mainWindow.webContents.send("processing-status", {
+            message: "Processing MCQ with OpenAI...",
+            progress: 60
+          });
+        }
+
+        // Send to OpenAI Vision API
+        const response = await this.openaiClient.chat.completions.create({
+          model: config.mcqModel || "gpt-4o",
+          messages: messages,
+          max_tokens: 16000, // Increased further to handle longer MCQ responses
+          temperature: 0.1
+        });
+
+        // Parse the response
+        try {
+          const responseText = response.choices[0].message.content;
+          if (!responseText) {
+            throw new Error("Empty response from OpenAI API");
+          }
+          
+          let jsonText = responseText.replace(/```json|```/g, '').trim();
+          
+          // Sanitize control characters that can break JSON parsing
+          jsonText = this.sanitizeJsonString(jsonText);
+          
+          mcqResponse = JSON.parse(jsonText);
+        } catch (error) {
+          console.error("Error parsing OpenAI MCQ response:", error);
+          return {
+            success: false,
+            error: "Failed to parse MCQ analysis. Please try again."
+          };
+        }
+      } else if (config.apiProvider === "gemini") {
+        // Use Gemini API
+        if (!this.geminiApiKey) {
+          return {
+            success: false,
+            error: "Gemini API key not configured. Please check your settings."
+          };
+        }
+
+        try {
+          // Create Gemini message structure for MCQ
+          const geminiMessages: GeminiMessage[] = [
+            {
+              role: "user",
+              parts: [
+                {
+                  text: `Analyze this MCQ from screenshots. Return ONLY valid JSON:
+{
+  "question": "complete question text",
+  "options": ["A. Option 1", "B. Option 2", "C. Option 3", "D. Option 4"],
+  "correct_options": ["A"],
+  "question_type": "single_correct",
+  "reasoning": "brief explanation"
+}
+
+Requirements:
+- question_type: "single_correct", "multiple_correct", or "true_false"
+- correct_options: array of letters (["A"], ["A","B"], etc.)
+- Keep reasoning concise but clear
+- No text before/after JSON`
+                },
+                ...imageDataList.map(data => ({
+                  inlineData: {
+                    mimeType: "image/png",
+                    data: data
+                  }
+                }))
+              ]
+            }
+          ];
+
+          // Update progress
+          if (mainWindow) {
+            mainWindow.webContents.send("processing-status", {
+              message: "Processing MCQ with Gemini...",
+              progress: 60
+            });
+          }
+
+          // Make API request to Gemini
+          const response = await axios.default.post(
+            `https://generativelanguage.googleapis.com/v1beta/models/${config.mcqModel || "gemini-2.5-flash"}:generateContent?key=${this.geminiApiKey}`,
+            {
+              contents: geminiMessages,
+              generationConfig: {
+                temperature: 0.1,
+                maxOutputTokens: 16000 // Increased further to handle longer MCQ responses
+              }
+            },
+            { signal }
+          );
+
+          const responseData = response.data as GeminiResponse;
+          
+          // Helper method to validate Gemini response structure
+          const validateGeminiResponse = (responseData: any): { success: boolean; error?: string; text?: string } => {
+            if (!responseData) {
+              return { success: false, error: "No response data from Gemini API" };
+            }
+            
+            if (!responseData.candidates || !Array.isArray(responseData.candidates) || responseData.candidates.length === 0) {
+              console.error("Invalid Gemini response structure:", responseData);
+              return { success: false, error: "Empty or invalid candidates array from Gemini API" };
+            }
+            
+            const candidate = responseData.candidates[0];
+            
+            // Check for MAX_TOKENS or other finish reasons that might affect content structure
+            if (candidate && candidate.finishReason === 'MAX_TOKENS') {
+              console.error("Gemini API response truncated due to MAX_TOKENS:", candidate);
+              return { success: false, error: "Response was truncated due to token limit. Please try with a shorter prompt or increase model's max tokens." };
+            }
+            
+            if (!candidate || !candidate.content || !candidate.content.parts || !Array.isArray(candidate.content.parts) || candidate.content.parts.length === 0) {
+              console.error("Invalid candidate structure:", candidate);
+              
+              // Provide more specific error messages based on the structure
+              if (candidate && candidate.finishReason) {
+                return { success: false, error: `Gemini API response incomplete. Finish reason: ${candidate.finishReason}. Please try again or use a different model.` };
+              }
+              
+              return { success: false, error: "Invalid response structure from Gemini API. The response may be incomplete or malformed." };
+            }
+            
+            const responsePart = candidate.content.parts[0];
+            if (!responsePart || !responsePart.text) {
+              console.error("Invalid response part:", responsePart);
+              return { success: false, error: "No text content in Gemini API response. The response may be empty or incomplete." };
+            }
+            
+            return { success: true, text: responsePart.text };
+          }
+
+          const validationResult = validateGeminiResponse(responseData);
+          if (!validationResult.success) {
+            return {
+              success: false,
+              error: validationResult.error
+            };
+          }
+          
+          // Parse the Gemini response as JSON
+          try {
+            let jsonText = validationResult.text.replace(/```json|```/g, '').trim();
+            
+            // Sanitize control characters that can break JSON parsing
+            jsonText = this.sanitizeJsonString(jsonText);
+            
+            mcqResponse = JSON.parse(jsonText);
+          } catch (error) {
+            console.error("Error parsing Gemini MCQ response:", error);
+            return {
+              success: false,
+              error: "Failed to parse MCQ analysis from Gemini. Please try again."
+            };
+          }
+        } catch (error) {
+          console.error("Error using Gemini API for MCQ:", error);
+          return {
+            success: false,
+            error: "Failed to process MCQ with Gemini API. Please check your API key or try again later."
+          };
+        }
+      } else if (config.apiProvider === "openrouter") {
+        // OpenRouter processing using OpenAI-compatible API
+        if (!this.openrouterClient) {
+          return {
+            success: false,
+            error: "OpenRouter API key not configured. Please check your settings."
+          };
+        }
+
+        try {
+          const imageMessages = imageDataList.map(data => ({
+            type: "image_url" as const,
+            image_url: {
+              url: `data:image/png;base64,${data}`,
+              detail: "high" as const
+            }
+          }));
+
+          // Update progress
+          if (mainWindow) {
+            mainWindow.webContents.send("processing-status", {
+              message: "Processing MCQ with OpenRouter...",
+              progress: 60
+            });
+          }
+
+          const response = await this.openrouterClient.chat.completions.create({
+            model: config.mcqModel || config.openrouterModel || "meta-llama/llama-3.1-8b-instruct:free",
+            messages: [
+              { 
+                role: "system", 
+                content: "You are an expert at analyzing multiple choice questions from screenshots. Analyze the question and provide the correct answer with detailed reasoning." 
+              },
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "text",
+                    text: `Analyze MCQ from screenshots. Return ONLY JSON:
+{
+  "question": "complete question text",
+  "options": ["A. Option 1", "B. Option 2", "C. Option 3", "D. Option 4"],
+  "correct_options": ["A"],
+  "question_type": "single_correct",
+  "reasoning": "brief explanation"
+}
+
+question_type: "single_correct", "multiple_correct", or "true_false"
+correct_options: array of letters (["A"], ["A","B"], etc.)`
+                  },
+                  ...imageMessages
+                ]
+              }
+            ],
+            max_tokens: 16000, // Increased further to handle longer MCQ responses
+            temperature: 0.1
+          });
+
+          const responseContent = response.choices[0].message.content;
+          if (!responseContent) {
+            throw new Error("Empty response from OpenRouter API");
+          }
+
+          let jsonText = responseContent.replace(/```json|```/g, '').trim();
+          
+          // Sanitize control characters that can break JSON parsing
+          jsonText = this.sanitizeJsonString(jsonText);
+          
+          mcqResponse = JSON.parse(jsonText);
+        } catch (error) {
+          console.error("Error using OpenRouter API for MCQ:", error);
+          return {
+            success: false,
+            error: "Failed to process MCQ with OpenRouter API. Please check your API key or try again later."
+          };
+        }
+      } else {
+        // No valid API provider configured
+        return {
+          success: false,
+          error: "No valid API provider configured. Please check your settings and ensure you have a valid API key."
+        };
+      }
+      
+      // Update the user on progress
+      if (mainWindow) {
+        mainWindow.webContents.send("processing-status", {
+          message: "MCQ analysis complete",
+          progress: 100
+        });
+      }
+
+      // Validate mcqResponse exists
+      if (!mcqResponse) {
+        return {
+          success: false,
+          error: "Failed to get valid MCQ response from API. Please try again."
+        };
+      }
+
+      // Format the MCQ response for display
+      const formattedResponse = {
+        question: mcqResponse.question || "Question extracted from image",
+        options: Array.isArray(mcqResponse.options) ? mcqResponse.options : [],
+        correct_options: Array.isArray(mcqResponse.correct_options) ? mcqResponse.correct_options : [],
+        question_type: mcqResponse.question_type || "single_correct",
+        reasoning: mcqResponse.reasoning || "Analysis based on the provided image",
+        // For compatibility with existing UI components
+        code: `Question: ${mcqResponse.question || 'Question not extracted'}\n\nOptions:\n${(Array.isArray(mcqResponse.options) ? mcqResponse.options : []).map((opt: string, idx: number) => `${opt}`).join('\n')}\n\nCorrect Answer(s): ${(Array.isArray(mcqResponse.correct_options) ? mcqResponse.correct_options : []).join(', ')}\n\nReasoning:\n${mcqResponse.reasoning || 'No reasoning provided'}`,
+        thoughts: [
+          `Question Type: ${mcqResponse.question_type || 'single_correct'}`, 
+          `Correct Answer(s): ${(Array.isArray(mcqResponse.correct_options) ? mcqResponse.correct_options : []).join(', ') || 'Not determined'}`
+        ],
+        time_complexity: "N/A - MCQ Mode",
+        space_complexity: "N/A - MCQ Mode"
+      };
+
+      return { success: true, data: formattedResponse };
+    } catch (error: any) {
+      console.error("MCQ processing error:", error);
+      
+      // Handle abort signal
+      if (axios.isCancel(error)) {
+        return {
+          success: false,
+          error: "MCQ processing was canceled by the user."
+        };
+      }
+      
+      return { success: false, error: error.message || "Failed to process MCQ question. Please try again." };
     }
   }
 

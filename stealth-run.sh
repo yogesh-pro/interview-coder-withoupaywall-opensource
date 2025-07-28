@@ -24,6 +24,32 @@ mkdir -p ~/Library/Application\ Support/interview-coder-v1/temp
 mkdir -p ~/Library/Application\ Support/interview-coder-v1/cache
 mkdir -p ~/Library/Application\ Support/interview-coder-v1/screenshots
 mkdir -p ~/Library/Application\ Support/interview-coder-v1/extra_screenshots
+mkdir -p ~/Library/Application\ Support/interview-coder-v1/session
+mkdir -p ~/Library/Application\ Support/interview-coder-v1/session/Cache
+mkdir -p ~/Library/Application\ Support/interview-coder-v1/session/Cache/Cache_Data
+mkdir -p ~/Library/Application\ Support/interview-coder-v1/session/Shared\ Dictionary
+mkdir -p ~/Library/Application\ Support/interview-coder-v1/session/Shared\ Dictionary/cache
+
+echo "=== Step 1.5: Cleaning corrupted cache and config entries... ==="
+# Clear any corrupted cache files that might cause issues
+echo "Clearing potentially corrupted cache files..."
+rm -rf ~/Library/Application\ Support/interview-coder-v1/session/Cache/*
+rm -rf ~/Library/Application\ Support/interview-coder-v1/session/Shared\ Dictionary/cache/*
+rm -rf ~/Library/Application\ Support/interview-coder-v1/cache/*
+
+# Recreate cache directories with proper permissions
+echo "Recreating cache directories with proper permissions..."
+mkdir -p ~/Library/Application\ Support/interview-coder-v1/session/Cache/Cache_Data
+mkdir -p ~/Library/Application\ Support/interview-coder-v1/session/Shared\ Dictionary/cache
+chmod -R 755 ~/Library/Application\ Support/interview-coder-v1/session/
+chmod -R 755 ~/Library/Application\ Support/interview-coder-v1/cache/
+
+CONFIG_FILE=~/Library/Application\ Support/interview-coder-v1/config.json
+if [ -f "$CONFIG_FILE" ]; then
+    echo "Found existing config file, checking for any cleanup needed..."
+    # Note: gemini-2.5-pro is now a valid model, so we don't replace it anymore
+    echo "Config validation will be handled by the application"
+fi
 
 echo "=== Step 2: Cleaning previous builds... ==="
 echo "Removing old build files to ensure a fresh start..."

@@ -9,6 +9,16 @@ import { initAutoUpdater } from "./autoUpdater"
 import { configHelper } from "./ConfigHelper"
 import * as dotenv from "dotenv"
 
+// Add Chromium flags to prevent cache issues
+app.commandLine.appendSwitch('--disable-http-cache')
+app.commandLine.appendSwitch('--disable-gpu-sandbox')
+app.commandLine.appendSwitch('--no-sandbox')
+app.commandLine.appendSwitch('--disable-background-timer-throttling')
+app.commandLine.appendSwitch('--disable-renderer-backgrounding')
+
+// Disable hardware acceleration to prevent cache issues (must be called before app.whenReady)
+app.disableHardwareAcceleration()
+
 // Constants
 const isDev = process.env.NODE_ENV === "development"
 
@@ -220,7 +230,10 @@ async function createWindow(): Promise<void> {
       preload: isDev
         ? path.join(__dirname, "../dist-electron/preload.js")
         : path.join(__dirname, "preload.js"),
-      scrollBounce: true
+      scrollBounce: true,
+      // Additional flags to prevent cache issues
+      partition: 'persist:interview-coder',
+      webgl: false
     },
     show: true,
     frame: false,
@@ -352,16 +365,15 @@ async function createWindow(): Promise<void> {
   const savedOpacity = configHelper.getOpacity();
   console.log(`Initial opacity from config: ${savedOpacity}`);
   
-  // Always make sure window is shown first
-  state.mainWindow.showInactive(); // Use showInactive for consistency
-  
   if (savedOpacity <= 0.1) {
     console.log('Initial opacity too low, setting to 0 and hiding window');
     state.mainWindow.setOpacity(0);
+    state.mainWindow.hide();
     state.isWindowVisible = false;
   } else {
     console.log(`Setting initial opacity to ${savedOpacity}`);
     state.mainWindow.setOpacity(savedOpacity);
+    state.mainWindow.show(); // Use show() instead of showInactive() for proper visibility
     state.isWindowVisible = true;
   }
 }
@@ -414,11 +426,15 @@ function showMainWindow(): void {
       visibleOnFullScreen: true
     });
     state.mainWindow.setContentProtection(true);
-    state.mainWindow.setOpacity(0); // Set opacity to 0 before showing
-    state.mainWindow.showInactive(); // Use showInactive instead of show+focus
-    state.mainWindow.setOpacity(1); // Then set opacity to 1 after showing
+    
+    // Get saved opacity
+    const savedOpacity = configHelper.getOpacity();
+    
+    // Show window with proper opacity
+    state.mainWindow.show(); // Use show() for proper visibility
+    state.mainWindow.setOpacity(savedOpacity > 0.1 ? savedOpacity : 1); // Ensure visible opacity
     state.isWindowVisible = true;
-    console.log('Window shown with showInactive(), opacity set to 1');
+    console.log(`Window shown with show(), opacity set to ${savedOpacity > 0.1 ? savedOpacity : 1}`);
   }
 }
 
@@ -511,13 +527,48 @@ async function initializeApp() {
     const tempPath = path.join(appDataPath, 'temp')
     const cachePath = path.join(appDataPath, 'cache')
     
-    // Create directories if they don't exist
-    for (const dir of [appDataPath, sessionPath, tempPath, cachePath]) {
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true })
+    // Create directories if they don't exist with better error handling
+    const dirsToCreate = [
+      appDataPath, 
+      sessionPath, 
+      tempPath, 
+      cachePath,
+      path.join(sessionPath, 'Cache'),
+      path.join(sessionPath, 'Cache', 'Cache_Data'),
+      path.join(sessionPath, 'Shared Dictionary'),
+      path.join(sessionPath, 'Shared Dictionary', 'cache')
+    ]
+    
+    for (const dir of dirsToCreate) {
+      try {
+        if (!fs.existsSync(dir)) {
+          fs.mkdirSync(dir, { recursive: true, mode: 0o755 })
+          console.log(`Created directory: ${dir}`)
+        } else {
+          // Clear potentially corrupted cache files
+          if (dir.includes('cache') || dir.includes('Cache')) {
+            try {
+              const files = fs.readdirSync(dir)
+              for (const file of files) {
+                const filePath = path.join(dir, file)
+                const stats = fs.statSync(filePath)
+                if (stats.isFile()) {
+                  fs.unlinkSync(filePath)
+                }
+              }
+              console.log(`Cleared cache directory: ${dir}`)
+            } catch (clearError) {
+              console.warn(`Failed to clear cache directory ${dir}:`, clearError)
+            }
+          }
+        }
+      } catch (error) {
+        console.warn(`Failed to create directory ${dir}:`, error)
+        // Continue execution even if some directories fail to create
       }
     }
     
+    // Set app paths before creating window to ensure proper cache handling
     app.setPath('userData', appDataPath)
     app.setPath('sessionData', sessionPath)      
     app.setPath('temp', tempPath)

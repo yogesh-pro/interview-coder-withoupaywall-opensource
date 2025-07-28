@@ -6,25 +6,41 @@ import { EventEmitter } from "events"
 import { OpenAI } from "openai"
 
 interface Config {
-  apiKey: string;
-  apiProvider: "openai" | "gemini" | "anthropic";  // Added provider selection
+  // Separate API keys for each service
+  openaiApiKey?: string;
+  geminiApiKey?: string;
+  openrouterApiKey?: string;
+  openrouterModel?: string;
+  
+  // Legacy field for backward compatibility
+  apiKey?: string;
+  
+  apiProvider: "openai" | "gemini" | "openrouter";  // Updated provider selection
   extractionModel: string;
   solutionModel: string;
   debuggingModel: string;
+  mcqModel: string;
   language: string;
   opacity: number;
+  solvingMode: "coding" | "mcq";  // New field for solving mode
 }
 
 export class ConfigHelper extends EventEmitter {
   private configPath: string;
   private defaultConfig: Config = {
-    apiKey: "",
+    openaiApiKey: "",
+    geminiApiKey: "",
+    openrouterApiKey: "",
+    openrouterModel: "meta-llama/llama-3.1-8b-instruct:free",
+    apiKey: "", // Legacy field for backward compatibility
     apiProvider: "gemini", // Default to Gemini
-    extractionModel: "gemini-2.0-flash", // Default to Flash for faster responses
-    solutionModel: "gemini-2.0-flash",
-    debuggingModel: "gemini-2.0-flash",
+    extractionModel: "gemini-2.5-flash", // Updated to use 2.5 Flash as default
+    solutionModel: "gemini-2.5-flash",
+    debuggingModel: "gemini-2.5-flash",
+    mcqModel: "gemini-2.5-flash",
     language: "python",
-    opacity: 1.0
+    opacity: 1.0,
+    solvingMode: "coding" // Default to coding mode
   };
 
   constructor() {
@@ -58,7 +74,7 @@ export class ConfigHelper extends EventEmitter {
   /**
    * Validate and sanitize model selection to ensure only allowed models are used
    */
-  private sanitizeModelSelection(model: string, provider: "openai" | "gemini" | "anthropic"): string {
+  private sanitizeModelSelection(model: string, provider: "openai" | "gemini" | "openrouter"): string {
     if (provider === "openai") {
       // Only allow gpt-4o and gpt-4o-mini for OpenAI
       const allowedModels = ['gpt-4o', 'gpt-4o-mini'];
@@ -68,24 +84,25 @@ export class ConfigHelper extends EventEmitter {
       }
       return model;
     } else if (provider === "gemini")  {
-      // Only allow gemini-1.5-pro and gemini-2.0-flash for Gemini
-      const allowedModels = ['gemini-1.5-pro', 'gemini-2.0-flash'];
+      // Allow all supported Gemini models including the new 2.5 models
+      const allowedModels = [
+        'gemini-2.5-pro', 
+        'gemini-2.5-flash', 
+        'gemini-2.5-flash-lite-preview-06-17',
+        'gemini-2.0-flash'
+      ];
       if (!allowedModels.includes(model)) {
-        console.warn(`Invalid Gemini model specified: ${model}. Using default model: gemini-2.0-flash`);
-        return 'gemini-2.0-flash'; // Changed default to flash
+        console.warn(`Invalid Gemini model specified: ${model}. Using default model: gemini-2.5-flash`);
+        return 'gemini-2.5-flash'; // Updated default to 2.5 Flash
       }
       return model;
-    }  else if (provider === "anthropic") {
-      // Only allow Claude models
-      const allowedModels = ['claude-3-7-sonnet-20250219', 'claude-3-5-sonnet-20241022', 'claude-3-opus-20240229'];
-      if (!allowedModels.includes(model)) {
-        console.warn(`Invalid Anthropic model specified: ${model}. Using default model: claude-3-7-sonnet-20250219`);
-        return 'claude-3-7-sonnet-20250219';
-      }
-      return model;
+    } else if (provider === "openrouter") {
+      // For OpenRouter, allow any model string as it's user-configurable
+      return model || "meta-llama/llama-3.1-8b-instruct:free";
     }
-    // Default fallback
-    return model;
+    
+    console.warn(`Unknown provider: ${provider}. Using default Gemini model.`);
+    return 'gemini-2.5-flash';
   }
 
   public loadConfig(): Config {
@@ -94,20 +111,38 @@ export class ConfigHelper extends EventEmitter {
         const configData = fs.readFileSync(this.configPath, 'utf8');
         const config = JSON.parse(configData);
         
-        // Ensure apiProvider is a valid value
-        if (config.apiProvider !== "openai" && config.apiProvider !== "gemini"  && config.apiProvider !== "anthropic") {
+        // Ensure apiProvider is a valid value, remove anthropic support
+        if (config.apiProvider !== "openai" && config.apiProvider !== "gemini" && config.apiProvider !== "openrouter") {
           config.apiProvider = "gemini"; // Default to Gemini if invalid
         }
         
+        // Convert anthropic to gemini for migration
+        if (config.apiProvider === "anthropic") {
+          config.apiProvider = "gemini";
+        }
+        
         // Sanitize model selections to ensure only allowed models are used
+        let configChanged = false;
         if (config.extractionModel) {
+          const originalModel = config.extractionModel;
           config.extractionModel = this.sanitizeModelSelection(config.extractionModel, config.apiProvider);
+          if (originalModel !== config.extractionModel) configChanged = true;
         }
         if (config.solutionModel) {
+          const originalModel = config.solutionModel;
           config.solutionModel = this.sanitizeModelSelection(config.solutionModel, config.apiProvider);
+          if (originalModel !== config.solutionModel) configChanged = true;
         }
         if (config.debuggingModel) {
+          const originalModel = config.debuggingModel;
           config.debuggingModel = this.sanitizeModelSelection(config.debuggingModel, config.apiProvider);
+          if (originalModel !== config.debuggingModel) configChanged = true;
+        }
+        
+        // Save the config if we had to sanitize any models
+        if (configChanged) {
+          console.log("Config was updated to fix invalid model selections");
+          this.saveConfig(config);
         }
         
         return {
@@ -150,21 +185,32 @@ export class ConfigHelper extends EventEmitter {
       const currentConfig = this.loadConfig();
       let provider = updates.apiProvider || currentConfig.apiProvider;
       
-      // Auto-detect provider based on API key format if a new key is provided
+      // Handle unique API keys for each service
+      if (updates.openaiApiKey || updates.geminiApiKey || updates.openrouterApiKey) {
+        // Direct API key updates for specific services
+        if (updates.openaiApiKey && !updates.apiProvider) {
+          provider = "openai";
+          updates.apiProvider = provider;
+        } else if (updates.geminiApiKey && !updates.apiProvider) {
+          provider = "gemini";
+          updates.apiProvider = provider;
+        } else if (updates.openrouterApiKey && !updates.apiProvider) {
+          provider = "openrouter";
+          updates.apiProvider = provider;
+        }
+      }
+      
+      // Auto-detect provider based on legacy API key format if provided
       if (updates.apiKey && !updates.apiProvider) {
-        // If API key starts with "sk-", it's likely an OpenAI key
         if (updates.apiKey.trim().startsWith('sk-')) {
           provider = "openai";
+          updates.openaiApiKey = updates.apiKey; // Migrate to specific key
           console.log("Auto-detected OpenAI API key format");
-        } else if (updates.apiKey.trim().startsWith('sk-ant-')) {
-          provider = "anthropic";
-          console.log("Auto-detected Anthropic API key format");
         } else {
           provider = "gemini";
+          updates.geminiApiKey = updates.apiKey; // Migrate to specific key
           console.log("Using Gemini API key format (default)");
         }
-        
-        // Update the provider in the updates object
         updates.apiProvider = provider;
       }
       
@@ -174,14 +220,17 @@ export class ConfigHelper extends EventEmitter {
           updates.extractionModel = "gpt-4o";
           updates.solutionModel = "gpt-4o";
           updates.debuggingModel = "gpt-4o";
-        } else if (updates.apiProvider === "anthropic") {
-          updates.extractionModel = "claude-3-7-sonnet-20250219";
-          updates.solutionModel = "claude-3-7-sonnet-20250219";
-          updates.debuggingModel = "claude-3-7-sonnet-20250219";
+          updates.mcqModel = "gpt-4o";
+        } else if (updates.apiProvider === "openrouter") {
+          updates.extractionModel = updates.openrouterModel || "meta-llama/llama-3.1-8b-instruct:free";
+          updates.solutionModel = updates.openrouterModel || "meta-llama/llama-3.1-8b-instruct:free";
+          updates.debuggingModel = updates.openrouterModel || "meta-llama/llama-3.1-8b-instruct:free";
+          updates.mcqModel = updates.openrouterModel || "meta-llama/llama-3.1-8b-instruct:free";
         } else {
-          updates.extractionModel = "gemini-2.0-flash";
-          updates.solutionModel = "gemini-2.0-flash";
-          updates.debuggingModel = "gemini-2.0-flash";
+          updates.extractionModel = "gemini-2.5-flash";
+          updates.solutionModel = "gemini-2.5-flash";
+          updates.debuggingModel = "gemini-2.5-flash";
+          updates.mcqModel = "gemini-2.5-flash";
         }
       }
       
@@ -195,15 +244,20 @@ export class ConfigHelper extends EventEmitter {
       if (updates.debuggingModel) {
         updates.debuggingModel = this.sanitizeModelSelection(updates.debuggingModel, provider);
       }
+      if (updates.mcqModel) {
+        updates.mcqModel = this.sanitizeModelSelection(updates.mcqModel, provider);
+      }
       
       const newConfig = { ...currentConfig, ...updates };
       this.saveConfig(newConfig);
       
       // Only emit update event for changes other than opacity
       // This prevents re-initializing the AI client when only opacity changes
-      if (updates.apiKey !== undefined || updates.apiProvider !== undefined || 
+      if (updates.openaiApiKey !== undefined || updates.geminiApiKey !== undefined || 
+          updates.openrouterApiKey !== undefined || updates.apiProvider !== undefined || 
           updates.extractionModel !== undefined || updates.solutionModel !== undefined || 
-          updates.debuggingModel !== undefined || updates.language !== undefined) {
+          updates.debuggingModel !== undefined || updates.mcqModel !== undefined || 
+          updates.language !== undefined) {
         this.emit('config-updated', newConfig);
       }
       
@@ -215,25 +269,31 @@ export class ConfigHelper extends EventEmitter {
   }
 
   /**
-   * Check if the API key is configured
+   * Check if the API key is configured for the current provider
    */
   public hasApiKey(): boolean {
     const config = this.loadConfig();
-    return !!config.apiKey && config.apiKey.trim().length > 0;
+    
+    if (config.apiProvider === "openai") {
+      return !!(config.openaiApiKey && config.openaiApiKey.trim().length > 0);
+    } else if (config.apiProvider === "gemini") {
+      return !!(config.geminiApiKey && config.geminiApiKey.trim().length > 0);
+    } else if (config.apiProvider === "openrouter") {
+      return !!(config.openrouterApiKey && config.openrouterApiKey.trim().length > 0);
+    }
+    
+    // Fallback to legacy API key
+    return !!(config.apiKey && config.apiKey.trim().length > 0);
   }
   
   /**
    * Validate the API key format
    */
-  public isValidApiKeyFormat(apiKey: string, provider?: "openai" | "gemini" | "anthropic" ): boolean {
+  public isValidApiKeyFormat(apiKey: string, provider?: "openai" | "gemini" | "openrouter" ): boolean {
     // If provider is not specified, attempt to auto-detect
     if (!provider) {
       if (apiKey.trim().startsWith('sk-')) {
-        if (apiKey.trim().startsWith('sk-ant-')) {
-          provider = "anthropic";
-        } else {
-          provider = "openai";
-        }
+        provider = "openai";
       } else {
         provider = "gemini";
       }
@@ -245,9 +305,9 @@ export class ConfigHelper extends EventEmitter {
     } else if (provider === "gemini") {
       // Basic format validation for Gemini API keys (usually alphanumeric with no specific prefix)
       return apiKey.trim().length >= 10; // Assuming Gemini keys are at least 10 chars
-    } else if (provider === "anthropic") {
-      // Basic format validation for Anthropic API keys
-      return /^sk-ant-[a-zA-Z0-9]{32,}$/.test(apiKey.trim());
+    } else if (provider === "openrouter") {
+      // Basic format validation for OpenRouter API keys
+      return /^sk-or-[a-zA-Z0-9]{32,}$/.test(apiKey.trim());
     }
     
     return false;
@@ -288,17 +348,15 @@ export class ConfigHelper extends EventEmitter {
   /**
    * Test API key with the selected provider
    */
-  public async testApiKey(apiKey: string, provider?: "openai" | "gemini" | "anthropic"): Promise<{valid: boolean, error?: string}> {
+  public async testApiKey(apiKey: string, provider?: "openai" | "gemini" | "openrouter"): Promise<{valid: boolean, error?: string}> {
     // Auto-detect provider based on key format if not specified
     if (!provider) {
-      if (apiKey.trim().startsWith('sk-')) {
-        if (apiKey.trim().startsWith('sk-ant-')) {
-          provider = "anthropic";
-          console.log("Auto-detected Anthropic API key format for testing");
-        } else {
-          provider = "openai";
-          console.log("Auto-detected OpenAI API key format for testing");
-        }
+      if (apiKey.trim().startsWith('sk-or-')) {
+        provider = "openrouter";
+        console.log("Auto-detected OpenRouter API key format for testing");
+      } else if (apiKey.trim().startsWith('sk-')) {
+        provider = "openai";
+        console.log("Auto-detected OpenAI API key format for testing");
       } else {
         provider = "gemini";
         console.log("Using Gemini API key format for testing (default)");
@@ -309,8 +367,8 @@ export class ConfigHelper extends EventEmitter {
       return this.testOpenAIKey(apiKey);
     } else if (provider === "gemini") {
       return this.testGeminiKey(apiKey);
-    } else if (provider === "anthropic") {
-      return this.testAnthropicKey(apiKey);
+    } else if (provider === "openrouter") {
+      return this.testOpenRouterKey(apiKey);
     }
     
     return { valid: false, error: "Unknown API provider" };
@@ -371,21 +429,20 @@ export class ConfigHelper extends EventEmitter {
   }
 
   /**
-   * Test Anthropic API key
-   * Note: This is a simplified implementation since we don't have the actual Anthropic client
+   * Test OpenRouter API key
    */
-  private async testAnthropicKey(apiKey: string): Promise<{valid: boolean, error?: string}> {
+  private async testOpenRouterKey(apiKey: string): Promise<{valid: boolean, error?: string}> {
     try {
       // For now, we'll just do a basic check to ensure the key exists and has valid format
-      // In production, you would connect to the Anthropic API and validate the key
-      if (apiKey && /^sk-ant-[a-zA-Z0-9]{32,}$/.test(apiKey.trim())) {
-        // Here you would actually validate the key with an Anthropic API call
+      // In production, you would connect to the OpenRouter API and validate the key
+      if (apiKey && /^sk-or-[a-zA-Z0-9]{32,}$/.test(apiKey.trim())) {
+        // Here you would actually validate the key with an OpenRouter API call
         return { valid: true };
       }
-      return { valid: false, error: 'Invalid Anthropic API key format.' };
+      return { valid: false, error: 'Invalid OpenRouter API key format.' };
     } catch (error: any) {
-      console.error('Anthropic API key test failed:', error);
-      let errorMessage = 'Unknown error validating Anthropic API key';
+      console.error('OpenRouter API key test failed:', error);
+      let errorMessage = 'Unknown error validating OpenRouter API key';
       
       if (error.message) {
         errorMessage = `Error: ${error.message}`;
