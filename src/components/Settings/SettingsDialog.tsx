@@ -290,7 +290,8 @@ export function SettingsDialog({ open: externalOpen, onOpenChange }: SettingsDia
             setDebuggingModel(config.debuggingModel || "gpt-4o");
             setMcqModel(config.mcqModel || "gpt-4o");
           } else if (provider === "openrouter") {
-            setExtractionModel(config.extractionModel || "custom");
+      // Leave empty to use the separate OpenRouter model field unless a specific model is chosen
+      setExtractionModel(config.extractionModel || "");
             setSolutionModel(config.solutionModel || "custom");
             setDebuggingModel(config.debuggingModel || "custom");
             setMcqModel(config.mcqModel || "custom");
@@ -330,7 +331,8 @@ export function SettingsDialog({ open: externalOpen, onOpenChange }: SettingsDia
       setDebuggingModel("gemini-2.5-flash");
       setMcqModel("gemini-2.5-flash");
     } else if (provider === "openrouter") {
-      setExtractionModel("custom");
+  // Empty means: use OpenRouter Model field by default until a specific Gemini option is chosen
+  setExtractionModel("");
       setSolutionModel("custom");
       setDebuggingModel("custom");
       setMcqModel("custom");
@@ -637,6 +639,9 @@ export function SettingsDialog({ open: externalOpen, onOpenChange }: SettingsDia
                     className="text-blue-400 hover:underline cursor-pointer">API Keys</button> section
                   </p>
                   <p className="text-xs text-white/60">3. Create a new API key and paste it here</p>
+                  <p className="text-xs text-white/60 mt-2">
+                    Note: To use Gemini models with the Gemini endpoint key, switch the API Provider above to <span className="text-white">Gemini</span> and select a Gemini model in the AI Model Selection section.
+                  </p>
                 </div>
               </div>
             )}
@@ -711,6 +716,8 @@ export function SettingsDialog({ open: externalOpen, onOpenChange }: SettingsDia
                   </label>
                   <p className="text-xs text-white/60 mb-2">{category.description}</p>
                   
+                  {/* Default model selection list (provider-specific). For Gemini models with Gemini API, switch provider to Gemini above. */}
+                  {
                   <div className="space-y-2">
                     {models.map((m) => {
                       // Determine which state to use based on category key
@@ -750,6 +757,7 @@ export function SettingsDialog({ open: externalOpen, onOpenChange }: SettingsDia
                       );
                     })}
                   </div>
+                  }
                 </div>
               );
             })
